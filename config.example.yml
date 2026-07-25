@@ -9,6 +9,18 @@ admin_addr: "127.0.0.1:8090"        # admin UI bind addr. Loopback ONLY.
 http_addr: ":80"
 https_addr: ":443"
 
+# Optional: restrict the admin UI to specific client IPs / subnets. The
+# DIRECT peer IP is matched (forwarded headers are ignored on purpose).
+# Empty = no restriction (correct for the loopback-only default, where
+# the OS already gates access). Populate this if you ever reach the admin
+# UI over a VPN — e.g. your WireGuard subnet:
+#   admin_allow_cidrs: ["10.8.0.0/24"]
+admin_allow_cidrs: []
+
+# Set true only if a TLS terminator sits in front of the admin listener.
+# Forces Secure cookies + HSTS even though jobcloud's admin bind is HTTP.
+admin_force_secure_cookie: false
+
 # Required for Let's Encrypt registration + renewal warnings.
 acme_email: "you@example.com"
 
@@ -30,3 +42,7 @@ admins:
   - username: "admin"
     # Replace with the output of `jobcloud hash 'your-pw'`.
     password_hash: "$2a$10$REPLACE_ME_WITH_BCRYPT_HASH_OUTPUT_FROM_jobcloud_hash"
+    # Optional two-factor auth. Generate with `jobcloud totp admin`, paste
+    # the secret here, and scan the printed otpauth URI into your
+    # authenticator app. Leave empty / omit to disable 2FA for this admin.
+    # totp_secret: ""

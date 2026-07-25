@@ -38,6 +38,9 @@ services:
       - ./sites:/etc/jobcloud/sites
       - ./certs:/etc/jobcloud/certs
       - ./data:/etc/jobcloud/data
+      # Static sites: drop a folder in ./www/<name>/ and point a site's
+      # `root` at <name>. Read-only — jobcloud never writes here.
+      - ./www:/etc/jobcloud/www:ro
     environment:
       TZ: ${TZ:-UTC}
     security_opt:

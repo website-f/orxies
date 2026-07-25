@@ -21,3 +21,18 @@ custom_headers:
   Strict-Transport-Security: "max-age=31536000; includeSubDomains"
   X-Frame-Options: "DENY"
   X-Content-Type-Options: "nosniff"
+
+# ── Static site variant ──────────────────────────────────────────────
+# To serve raw HTML / a portfolio / a Next.js or Vite static export with
+# NO sidecar server: drop the built files in jobcloud's www/<name>/ and
+# set `root` instead of `upstreams`. Everything else (TLS, rate limit,
+# exploit blocking, custom headers) works the same.
+#
+#   domain: portfolio.example.com
+#   root: portfolio        # -> serves www/portfolio/ (or an absolute path)
+#   spa: false             # true = serve index.html for unmatched paths
+#   enabled: true          #        (React/Vue routers, static exports)
+#   tls:
+#     auto: true
+#   http_to_https: true
+#   block_common_exploits: true

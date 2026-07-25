@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"jobcloud/internal/acme"
+	"jobcloud/internal/audit"
 	"jobcloud/internal/auth"
 	"jobcloud/internal/config"
 	"jobcloud/internal/metrics"
 	"jobcloud/internal/proxy"
+	"jobcloud/internal/security"
 	"jobcloud/internal/server"
 	"jobcloud/internal/ui"
 )
@@ -31,7 +33,7 @@ var Version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage)
+		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -39,10 +41,12 @@ func main() {
 		cmdServe(os.Args[2:])
 	case "hash":
 		cmdHash(os.Args[2:])
+	case "totp":
+		cmdTOTP(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("jobcloud", Version)
 	default:
-		fmt.Fprintln(os.Stderr, usage)
+		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
 }
@@ -50,9 +54,10 @@ func main() {
 const usage = `jobcloud — reverse proxy + admin UI for multi-project hosting
 
 Commands:
-  serve      Run the proxy + admin UI
-  hash PW    Print a bcrypt hash for the given password (for config.yml)
-  version    Print the build version
+  serve       Run the proxy + admin UI
+  hash PW     Print a bcrypt hash for the given password (for config.yml)
+  totp [USER] Generate a TOTP 2FA secret + otpauth URI (for config.yml)
+  version     Print the build version
 
 Flags for 'serve':
   --data DIR     Data directory (default /etc/jobcloud)
@@ -73,11 +78,33 @@ func cmdHash(args []string) {
 	fmt.Println(h)
 }
 
+func cmdTOTP(args []string) {
+	account := "admin"
+	if len(args) >= 1 && args[0] != "" {
+		account = args[0]
+	}
+	secret, err := auth.NewTOTPSecret()
+	if err != nil {
+		fatal("totp: %v", err)
+	}
+	fmt.Println("Add this to the admin in config.yml:")
+	fmt.Println()
+	fmt.Printf("  totp_secret: \"%s\"\n", secret)
+	fmt.Println()
+	fmt.Println("Then import into your authenticator app via this otpauth URI")
+	fmt.Println("(or render it as a QR code):")
+	fmt.Println()
+	fmt.Println("  " + auth.TOTPURI("jobcloud", account, secret))
+	fmt.Println()
+	fmt.Println("After restarting jobcloud, that admin will be prompted for a code at login.")
+}
+
 func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dataDir := fs.String("data", "/etc/jobcloud", "data directory")
 	sitesDir := fs.String("sites", "", "sites directory (default <data>/sites)")
 	certsDir := fs.String("certs", "", "ACME cert storage (default <data>/certs)")
+	wwwDir := fs.String("www", "", "static-sites base dir (default <data>/www)")
 	logLevel := fs.String("log-level", "info", "log level: debug, info, warn, error")
 	_ = fs.Parse(args)
 
@@ -90,7 +117,10 @@ func cmdServe(args []string) {
 	if *certsDir == "" {
 		*certsDir = filepath.Join(*dataDir, "certs")
 	}
-	for _, d := range []string{*dataDir, *sitesDir, *certsDir} {
+	if *wwwDir == "" {
+		*wwwDir = filepath.Join(*dataDir, "www")
+	}
+	for _, d := range []string{*dataDir, *sitesDir, *certsDir, *wwwDir} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			fatal("mkdir %s: %v", d, err)
 		}
@@ -101,10 +131,24 @@ func cmdServe(args []string) {
 		fatal("load global config: %v", err)
 	}
 
+	adminAllow, err := security.ParseCIDRs(g.AdminAllowCIDRs)
+	if err != nil {
+		fatal("admin_allow_cidrs: %v", err)
+	}
+	if len(adminAllow) > 0 {
+		slog.Info("admin UI IP allowlist active", "cidrs", g.AdminAllowCIDRs)
+	}
+
+	auditLog, err := audit.Open(filepath.Join(*dataDir, "audit.log"))
+	if err != nil {
+		slog.Warn("audit log unavailable — mirroring to stdout only", "err", err)
+	}
+
 	authMgr, err := auth.New(g, *dataDir)
 	if err != nil {
 		fatal("auth: %v", err)
 	}
+	loginThrottle := auth.NewThrottle()
 
 	acmeMgr, err := acme.New(*certsDir, g.ACMEEmail, g.ACMEDirectory)
 	if err != nil {
@@ -113,16 +157,18 @@ func cmdServe(args []string) {
 
 	store := config.NewStore()
 	registry := metrics.NewRegistry()
-	router := proxy.NewRouter(store, registry, g.TrustForwardedHeaders)
+	router := proxy.NewRouter(store, registry, g.TrustForwardedHeaders, *wwwDir)
 
 	uiSrv, err := ui.New(&ui.Server{
-		Store:    store,
-		Metrics:  registry,
-		Auth:     authMgr,
-		ACME:     acmeMgr,
-		SitesDir: *sitesDir,
-		Version:  Version,
-		StartAt:  time.Now(),
+		Store:         store,
+		Metrics:       registry,
+		Auth:          authMgr,
+		ACME:          acmeMgr,
+		SitesDir:      *sitesDir,
+		Version:       Version,
+		StartAt:       time.Now(),
+		Audit:         auditLog,
+		LoginThrottle: loginThrottle,
 	})
 	if err != nil {
 		fatal("ui: %v", err)
@@ -183,15 +229,17 @@ func cmdServe(args []string) {
 	}()
 
 	deps := &server.Deps{
-		Global:    g,
-		Store:     store,
-		Watcher:   watcher,
-		Router:    router,
-		UI:        uiSrv,
-		Auth:      authMgr,
-		ACME:      acmeMgr,
-		Registry:  registry,
-		StartedAt: time.Now(),
+		Global:           g,
+		Store:            store,
+		Watcher:          watcher,
+		Router:           router,
+		UI:               uiSrv,
+		Auth:             authMgr,
+		ACME:             acmeMgr,
+		Registry:         registry,
+		StartedAt:        time.Now(),
+		AdminAllow:       adminAllow,
+		AdminForceSecure: g.AdminForceSecureCookie,
 	}
 	if err := server.Run(ctx, deps); err != nil {
 		fatal("server: %v", err)

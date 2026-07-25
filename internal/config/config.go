@@ -40,12 +40,29 @@ type Global struct {
 	// Trust X-Forwarded-* headers (set true only if jobcloud sits
 	// behind another L7 proxy — by default jobcloud IS the edge).
 	TrustForwardedHeaders bool `yaml:"trust_forwarded_headers"`
+
+	// AdminAllowCIDRs optionally restricts which client IPs may reach
+	// the admin UI. Empty (default) imposes no restriction — correct
+	// for the loopback-only deployment, where the OS already gates
+	// access. Populate it (e.g. your VPN subnet, "10.8.0.0/24") if you
+	// ever bind the admin UI beyond loopback. The *direct peer* IP is
+	// matched; forwarded headers are ignored on purpose.
+	AdminAllowCIDRs []string `yaml:"admin_allow_cidrs"`
+
+	// AdminForceSecureCookie marks session/CSRF cookies Secure even
+	// when the admin request arrives over plain HTTP. Set true when a
+	// TLS terminator sits in front of the admin listener so cookies are
+	// never emitted to a plaintext context. Also switches on HSTS.
+	AdminForceSecureCookie bool `yaml:"admin_force_secure_cookie"`
 }
 
 // Admin is one admin login.
 type Admin struct {
 	Username     string `yaml:"username"`
 	PasswordHash string `yaml:"password_hash"` // bcrypt
+	// TOTPSecret is the base32 shared secret for time-based 2FA. Empty
+	// disables 2FA for this admin. Generate with `jobcloud totp <user>`.
+	TOTPSecret string `yaml:"totp_secret"`
 }
 
 // Site describes one routed domain → upstream(s).
@@ -58,8 +75,17 @@ type Site struct {
 	// Additional domain aliases (e.g. www.example.com).
 	Aliases []string `yaml:"aliases"`
 	// Upstreams to load-balance across. Each in the form host:port
-	// (e.g. "127.0.0.1:8082"). Required ≥ 1.
+	// (e.g. "127.0.0.1:8082"). Required ≥ 1 unless Root is set.
 	Upstreams []string `yaml:"upstreams"`
+	// Root, if set, serves the site as STATIC files from this directory
+	// instead of proxying to upstreams — no sidecar HTTP server needed.
+	// Relative paths resolve under the www base dir (default
+	// <data>/www); absolute paths are used as-is. Mutually exclusive
+	// with Upstreams (Root wins).
+	Root string `yaml:"root"`
+	// SPA — for a static (Root) site, serve index.html for any path that
+	// doesn't map to a real file (client-side routing / static exports).
+	SPA bool `yaml:"spa"`
 	// Enabled toggles serving without deleting the file.
 	Enabled bool `yaml:"enabled"`
 	// TLS settings.
@@ -104,15 +130,32 @@ func (s *Site) AllDomains() []string {
 
 // Validate checks site config and returns the first error found.
 func (s *Site) Validate() error {
-	if strings.TrimSpace(s.Domain) == "" {
+	s.Domain = strings.TrimSpace(s.Domain)
+	if s.Domain == "" {
 		return errors.New("domain is required")
 	}
-	if len(s.Upstreams) == 0 {
-		return errors.New("at least one upstream is required")
+	if !validHostname(s.Domain) {
+		return fmt.Errorf("invalid domain %q (must be a valid hostname)", s.Domain)
 	}
-	for _, u := range s.Upstreams {
-		if !validUpstream(u) {
-			return fmt.Errorf("invalid upstream %q (expected host:port)", u)
+	for i, a := range s.Aliases {
+		s.Aliases[i] = strings.TrimSpace(a)
+		if !validHostname(s.Aliases[i]) {
+			return fmt.Errorf("invalid alias %q (must be a valid hostname)", a)
+		}
+	}
+	// A site is EITHER static (Root) OR a proxy (Upstreams).
+	if s.Root = strings.TrimSpace(s.Root); s.Root != "" {
+		if strings.Contains(s.Root, "..") {
+			return fmt.Errorf("invalid root %q (must not contain \"..\")", s.Root)
+		}
+	} else {
+		if len(s.Upstreams) == 0 {
+			return errors.New("provide at least one upstream, or a static root")
+		}
+		for _, u := range s.Upstreams {
+			if !validUpstream(u) {
+				return fmt.Errorf("invalid upstream %q (expected host:port)", u)
+			}
 		}
 	}
 	if s.RateLimit.Enabled {
@@ -124,6 +167,42 @@ func (s *Site) Validate() error {
 		}
 	}
 	return nil
+}
+
+// validHostname reports whether h is a syntactically valid DNS name we
+// can route + issue an ACME cert for: 2+ dot-separated labels, each
+// label 1..63 chars of [a-zA-Z0-9-] and not edge-hyphenated, total
+// length ≤253. Rejects paths, ports, schemes, wildcards, and the
+// control/newline chars that could poison a YAML file or a log line.
+func validHostname(h string) bool {
+	h = strings.TrimSuffix(strings.TrimSpace(h), ".")
+	if h == "" || len(h) > 253 {
+		return false
+	}
+	labels := strings.Split(h, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, l := range labels {
+		if l == "" || len(l) > 63 {
+			return false
+		}
+		if l[0] == '-' || l[len(l)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(l); i++ {
+			c := l[i]
+			switch {
+			case c >= 'a' && c <= 'z',
+				c >= 'A' && c <= 'Z',
+				c >= '0' && c <= '9',
+				c == '-':
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validUpstream(s string) bool {

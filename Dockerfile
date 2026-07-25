@@ -5,10 +5,10 @@ WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY . .
 ARG VERSION=dev
-# `go mod tidy` resolves transitive deps + writes go.sum on the fly
-# (the repo doesn't ship go.sum so the build is self-contained).
-# Adds ~30s on first build; subsequent builds hit the layer cache.
-RUN go mod tidy
+# The repo ships go.mod + go.sum, so `go mod download` is deterministic
+# and hits the layer cache. `go mod tidy` stays as a belt-and-suspenders
+# reconcile in case go.mod drifts; it's idempotent when the sum is present.
+RUN go mod download && go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w -X main.Version=${VERSION}" \
@@ -20,7 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S jobcloud && adduser -S -G jobcloud -u 1001 jobcloud
 COPY --from=builder /out/jobcloud /usr/local/bin/jobcloud
 # Default data dir; mount your real one over this in docker-compose.
-RUN mkdir -p /etc/jobcloud /etc/jobcloud/sites /etc/jobcloud/certs && \
+RUN mkdir -p /etc/jobcloud /etc/jobcloud/sites /etc/jobcloud/certs /etc/jobcloud/www && \
     chown -R jobcloud:jobcloud /etc/jobcloud
 USER jobcloud
 EXPOSE 80 443 8090

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"jobcloud/internal/config"
 	"jobcloud/internal/metrics"
 	"jobcloud/internal/proxy"
+	"jobcloud/internal/security"
 	"jobcloud/internal/ui"
 )
 
@@ -29,6 +31,11 @@ type Deps struct {
 	ACME      *acme.Manager
 	Registry  *metrics.Registry
 	StartedAt time.Time
+	// AdminAllow restricts the admin UI to these peer IPs (empty = any).
+	AdminAllow []*net.IPNet
+	// AdminForceSecure marks the admin listener as TLS-fronted (enables
+	// HSTS + Secure cookies even though the listener itself is HTTP).
+	AdminForceSecure bool
 }
 
 // Run brings up the HTTP, HTTPS, and admin listeners. Blocks until
@@ -59,9 +66,18 @@ func Run(ctx context.Context, d *Deps) error {
 		IdleTimeout:       90 * time.Second,
 	}
 
+	// Harden the admin UI: cap body size, enforce the optional source-IP
+	// allowlist, then set strict security headers (outermost so they
+	// apply even to allowlist/again 403s). MaxBody sits innermost so it
+	// wraps the body before any handler calls ParseForm.
+	adminHandler := security.Headers(
+		security.IPAllowlist(d.AdminAllow,
+			security.MaxBody(64<<10, d.UI.Handler())),
+		d.AdminForceSecure,
+	)
 	adminSrv := &http.Server{
 		Addr:              d.Global.AdminAddr,
-		Handler:           d.UI.Handler(),
+		Handler:           adminHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

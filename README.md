@@ -16,14 +16,15 @@ You have a VPS. You want to host project A on `a.com`, project B on `b.com`, pro
 
 ## Features
 
-- **Reverse proxy** with round-robin load balancing across multiple upstreams per site.
+- **Reverse proxy** with round-robin load balancing across multiple upstreams per site — any `host:port` that speaks HTTP (Docker or not).
+- **Static hosting built in** — serve raw HTML, a portfolio, or a Next.js/Vite static export straight from a folder, with optional SPA fallback. No sidecar server.
 - **Auto Let's Encrypt** via [`certmagic`](https://github.com/caddyserver/certmagic) — same library Caddy uses in production. Auto-renewal, OCSP stapling, ACME http-01.
 - **Live traffic dashboard** — per-site requests/min, bytes out, p50/p95/p99 latency, error rate. Polls every 3s.
 - **Per-site rate limiting** — token bucket, per source IP. Configurable rps + burst.
 - **Common-exploit pre-filter** — drops `/wp-admin`, `/.env`, scanner UAs, etc. before they reach your upstream.
 - **WebSocket** + HTTP/2 upgrade passthrough.
 - **Hot reload** — drop a YAML file in `sites/`, save in the UI, or `git pull` your sites repo. Routing updates within 200ms. No restart.
-- **Bcrypt admin auth** with signed-cookie sessions. Admin UI binds to `127.0.0.1` only — reach it via SSH tunnel.
+- **Hardened admin auth** — bcrypt passwords, optional TOTP 2FA, signed-cookie sessions, CSRF tokens on every mutation, login rate-limiting + lockout, a strict Content-Security-Policy and security-header set, an optional source-IP allowlist, and an append-only audit log. Admin UI binds to `127.0.0.1` only — reach it via SSH tunnel or a VPN.
 - **Portable** — back up the `/opt/jobcloud/` folder (compose + sites + certs + data), drop on a new VPS, done.
 
 ## Pre-flight checklist (read before deploying)
@@ -96,6 +97,17 @@ Leave that terminal open. In your browser go to `http://127.0.0.1:8090` (NOT the
 
 > If the browser shows "connection refused", the tunnel is dead (SSH session closed) or jobcloud isn't listening on 8090 on the VPS. Verify VPS-side with `ss -tlnp | grep 8090` — should show jobcloud bound on `127.0.0.1:8090`.
 
+### Reaching it over a VPN instead of an SSH tunnel
+
+If re-opening an SSH tunnel every time is tedious, put the VPS on a private overlay network and browse to the admin UI directly — still never exposing 8090 to the public internet. Two common options:
+
+- **Tailscale** — `curl -fsSL https://tailscale.com/install.sh | sh` then `tailscale up` on the VPS and your laptop. Change `admin_addr` to the VPS's tailnet IP (e.g. `admin_addr: "100.x.y.z:8090"`) and set `admin_allow_cidrs: ["100.64.0.0/10"]` so only tailnet peers can reach it. Browse to `http://100.x.y.z:8090`.
+- **WireGuard** — bring up a `wg0` interface (e.g. server `10.8.0.1/24`, laptop `10.8.0.2`). Set `admin_addr: "10.8.0.1:8090"` and `admin_allow_cidrs: ["10.8.0.0/24"]`. Browse to `http://10.8.0.1:8090`.
+
+The IP allowlist matches the **direct peer IP** — a forwarded header can't spoof past it. Keep the host firewall dropping public traffic to 8090 regardless (`ufw deny 8090` / cloud security group). VPN + allowlist + firewall is defence in depth, not a single wall.
+
+> The VPN itself (installing Tailscale/WireGuard, firewall rules) is host-level ops — configure it on the VPS, not inside jobcloud.
+
 ## Adding a site
 
 **Via the UI:** Click "+ Add site", fill out the form, save. The new site is live within ~200ms; if `TLS auto` is on, the cert arrives ~10–30s later (depends on Let's Encrypt).
@@ -121,6 +133,42 @@ rate_limit:
 ```
 
 DNS for the domain must already point at the VPS. Test with `dig +short newdomain.com`.
+
+## What can sit behind jobcloud
+
+jobcloud is a reverse proxy + TLS terminator, not a Docker-specific tool. An upstream is **any `host:port` that speaks HTTP** — the only link between jobcloud and your project is the port number. It doesn't read your project folders and doesn't care where they live (`/opt` is just convention). That means all of these work:
+
+- a Docker container that publishes to `127.0.0.1:<port>`
+- a bare process on the host — `node`, `gunicorn`, `pm2`, a Go binary — listening on `127.0.0.1:<port>` (run it under systemd/pm2 so it survives reboots)
+- an existing nginx/apache + php-fpm stack (e.g. **WordPress**) listening on a loopback port
+- **static files** served directly by jobcloud (see below) — no sidecar server at all
+
+The universal recipe: (1) make the app listen on `127.0.0.1:<uniquePort>` over plain HTTP (jobcloud does the TLS), (2) point DNS at the VPS, (3) add a site with that upstream. Apps that build absolute URLs (WordPress, Django, Rails) should honor the `X-Forwarded-Proto` header jobcloud sends, to avoid redirect loops.
+
+### Hosting a static site (raw HTML, portfolio, SPA, static export)
+
+No upstream, no sidecar. Drop your built files into jobcloud's `www/<name>/` folder and point a site's `root` at `<name>`:
+
+```bash
+# on the VPS
+mkdir -p /opt/jobcloud/jobcloud/www/portfolio
+cp -r ./my-portfolio/* /opt/jobcloud/jobcloud/www/portfolio/
+sudo chown -R 1001:1001 /opt/jobcloud/jobcloud/www   # container runs as uid 1001
+```
+
+Then add the site (UI or YAML):
+
+```yaml
+domain: portfolio.example.com
+root: portfolio        # serves www/portfolio/ (absolute paths also allowed)
+spa: false             # true → serve index.html for unmatched paths
+enabled: true          #        (React/Vue routers, Next.js/Vite exports)
+tls:
+  auto: true
+http_to_https: true
+```
+
+Directory listings are disabled (a folder with no `index.html` → 404). TLS, rate limiting, exploit blocking and custom headers all apply to static sites too. For a **Next.js static export** (`output: 'export'`) or any client-side-routed SPA, set `spa: true` so deep links fall back to `index.html`. (For Next.js with SSR/API routes, run `next start` on a port and use it as a normal upstream instead.)
 
 ## Onboarding a new project (the workflow you'll use every time)
 
@@ -374,6 +422,19 @@ docker compose run --rm jobcloud hash 'newpassword'
 docker compose restart jobcloud
 ```
 
+**Enable 2FA for an admin:**
+```bash
+docker compose run --rm jobcloud totp admin
+# paste the printed totp_secret under that admin in config.yml,
+# scan the otpauth URI into your authenticator app, then:
+docker compose restart jobcloud
+```
+
+**Read the audit log:**
+```bash
+tail -f data/audit.log        # one JSON object per admin action
+```
+
 **Move to a new VPS:**
 
 The migration is just "stop on old, archive, restore on new, repoint DNS." Detail below:
@@ -489,9 +550,18 @@ You hit the IP directly or hit a domain that isn't configured. Add a site for th
 
 ## Security notes
 
-- Admin UI is bound to `127.0.0.1:8090`. **Never expose port 8090 publicly.** Reach it via SSH tunnel.
-- Bcrypt password hashes (cost 10). Use a long unique password.
-- Session cookies are HMAC-signed with a 48-byte secret stored at `data/secret.key`. Cookies are `HttpOnly`, `SameSite=Lax`, `Secure` when over HTTPS, 24h expiry.
+The admin UI controls domains and TLS on a live server, so it's hardened accordingly.
+
+- **Loopback by default.** Admin UI binds `127.0.0.1:8090`. **Never expose port 8090 publicly.** Reach it via SSH tunnel or a VPN (see above). If you must front it with TLS, set `admin_force_secure_cookie: true` so cookies are `Secure` + HSTS is sent.
+- **IP allowlist.** `admin_allow_cidrs` (empty by default) restricts the admin UI to given subnets, matched on the direct peer IP — forwarded headers can't spoof it.
+- **Bcrypt passwords** (cost 10). Use a long unique password. Generate the hash with `jobcloud hash '<pw>'`.
+- **TOTP two-factor auth** (optional, per admin). Run `jobcloud totp <username>`, paste the printed `totp_secret` into that admin's config entry, scan the otpauth URI into an authenticator app, and restart. Login then requires a 6-digit code (SHA1 / 6 digits / 30 s, ±1 step skew).
+- **Login rate-limiting.** 5 failed attempts from an IP triggers a 15-minute lockout (covers both the password and the 2FA step). The tracker self-prunes so it can't be memory-exhausted.
+- **CSRF protection.** Every state-changing request (login, site create/update/delete/toggle) requires a signed double-submit token; requests without a valid token are rejected 403.
+- **Strict security headers** on the admin UI: a locked-down `Content-Security-Policy` (no external hosts, no inline script/style — fonts, CSS, JS and icons are all self-hosted), `X-Frame-Options: DENY` + `frame-ancestors 'none'` (no clickjacking), `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and HSTS when TLS-fronted.
+- **Audit log.** Admin actions (logins, 2FA, site create/update/delete/toggle, logout) are appended as JSON lines to `data/audit.log` (`user`, `ip`, `action`, `target`, `result`, `time`) and mirrored to the container log.
+- **Input validation.** Domains + aliases are validated as real hostnames before being written; upstreams must be `host:port`; request bodies to the admin UI are size-capped; the static file server refuses directory listings.
+- **Sessions.** HMAC-signed with a 48-byte secret at `data/secret.key`. Cookies are `HttpOnly`, `SameSite=Lax`, `Secure` when over HTTPS (or when `admin_force_secure_cookie` is set), 24h expiry. Removing an admin from `config.yml` invalidates their existing sessions.
 - `trust_forwarded_headers: false` by default — `jobcloud` uses the direct peer IP for rate limiting + logs. Only flip true if you put another trusted L7 proxy in front (e.g. Cloudflare).
 - The container runs as uid 1001 (non-root). Drops all capabilities except `NET_BIND_SERVICE`.
 

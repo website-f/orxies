@@ -20,7 +20,8 @@
   <td class="num">{{.P95}}</td>
   <td class="num {{if gt .ErrsPerMin 0}}warn{{end}}">{{.ErrsPerMin}}</td>
   <td class="actions">
-    <form method="post" action="/sites/{{.Filename}}/toggle" hx-post="/sites/{{.Filename}}/toggle" hx-target="closest tr" hx-swap="none">
+    <form method="post" action="/sites/{{.Filename}}/toggle">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn small" type="submit">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
     </form>
   </td>

@@ -8,6 +8,7 @@
 {{if .Saved}}<div class="alert ok">Saved.</div>{{end}}
 
 <form method="post" action="{{if .New}}/sites{{else}}/sites/{{.Site.Filename}}{{end}}" class="card form">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div class="row">
     <label>Domain
       <input type="text" name="domain" required value="{{.Site.Domain}}" placeholder="example.com" {{if not .New}}readonly{{end}}>
@@ -17,9 +18,18 @@
     </label>
   </div>
 
-  <label>Upstreams <span class="muted small">(one per line, host:port)</span>
-    <textarea name="upstreams" rows="3" required placeholder="127.0.0.1:8082">{{join .Site.Upstreams "\n"}}</textarea>
+  <label>Upstreams <span class="muted small">(one per line, host:port — leave empty for a static site)</span>
+    <textarea name="upstreams" rows="3" placeholder="127.0.0.1:8082">{{join .Site.Upstreams "\n"}}</textarea>
   </label>
+
+  <fieldset>
+    <legend>Static site (optional)</legend>
+    <div class="muted small">Serve files directly — no upstream needed. Drop your folder in jobcloud's <span class="mono">www/&lt;name&gt;/</span> and set the root to <span class="mono">&lt;name&gt;</span> (or an absolute path). Overrides upstreams.</div>
+    <label>Static root
+      <input type="text" name="root" value="{{.Site.Root}}" placeholder="mysite">
+    </label>
+    <label class="check"><input type="checkbox" name="spa" {{if .Site.SPA}}checked{{end}}> SPA fallback (serve index.html for unmatched paths)</label>
+  </fieldset>
 
   <fieldset>
     <legend>Routing</legend>
@@ -48,7 +58,8 @@
     <button type="submit" class="btn primary">Save</button>
     <a href="/sites" class="btn">Cancel</a>
     {{if not .New}}
-      <form method="post" action="/sites/{{.Site.Filename}}/delete" onsubmit="return confirm('Delete this site config?')" style="display:inline;margin-left:auto">
+      <form method="post" action="/sites/{{.Site.Filename}}/delete" data-confirm="Delete this site config?" class="inline push-right">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <button type="submit" class="btn danger">Delete</button>
       </form>
     {{end}}

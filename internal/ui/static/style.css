@@ -578,6 +578,11 @@ table.sites td a:hover { color: var(--primary); text-decoration: none; }
   color: var(--text-2);
 }
 
+/* ── utilities ────────────────────────────────────────────────── */
+.inline { display: inline; }
+.push-right { margin-left: auto; }
+.login-card .hint { margin: -12px 0 16px; }
+
 /* ── footer ───────────────────────────────────────────────────── */
 .footer {
   color: var(--muted);
