@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────
-   jobcloud — enterprise dark UI
+   orxies — enterprise dark UI
    Design tokens + components, mobile-first responsive.
    No frameworks, vanilla CSS. ~500 lines.
    ────────────────────────────────────────────────────────────────── */
@@ -578,10 +578,159 @@ table.sites td a:hover { color: var(--primary); text-decoration: none; }
   color: var(--text-2);
 }
 
+/* ── icons (Lucide sprite via <use>) ──────────────────────────── */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.14em;
+  flex-shrink: 0;
+  color: inherit;
+  pointer-events: none;
+}
+.topbar nav a { display: inline-flex; align-items: center; gap: 8px; }
+.topbar nav a .icon { width: 16px; height: 16px; opacity: .85; }
+.btn .icon { width: 15px; height: 15px; }
+.btn.small .icon { width: 13px; height: 13px; }
+.brand .logo .icon { width: 18px; height: 18px; }
+.hero-title-row { display: inline-flex; align-items: center; gap: 10px; }
+
+/* ── KPI icons ────────────────────────────────────────────────── */
+.kpi-head { display: flex; align-items: center; justify-content: space-between; }
+.kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.kpi-icon .icon { width: 16px; height: 16px; }
+.kpi-icon.ok   { background: var(--ok-soft);   color: var(--ok); }
+.kpi-icon.warn { background: var(--warn-soft); color: var(--warn); }
+.kpi-icon.tls  { background: var(--tls-soft);  color: var(--tls); }
+
+/* ── type badges (static vs proxy) ────────────────────────────── */
+.badge.static { background: var(--tls-soft); color: var(--tls); border-color: rgba(181,156,255,.25); }
+.badge.proxy  { background: var(--primary-soft); color: var(--primary); border-color: rgba(108,142,255,.25); }
+.badge .icon { width: 12px; height: 12px; }
+
+/* ── sparkline ────────────────────────────────────────────────── */
+.spark { width: 108px; height: 26px; display: block; }
+.spark polyline { fill: none; stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.spark .area { fill: var(--primary-soft); stroke: none; }
+.spark.flat polyline { stroke: var(--muted-2); }
+td.spark-cell { width: 120px; }
+@media (max-width: 860px) { td.spark-cell, th.spark-cell { display: none; } }
+
+/* ── per-site stats panel ─────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+}
+.stat .stat-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: 600;
+}
+.stat .stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.status-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.status-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.status-chip.s2 { color: var(--ok); }
+.status-chip.s3 { color: var(--primary); }
+.status-chip.s4 { color: var(--warn); }
+.status-chip.s5 { color: var(--danger); }
+.spark-lg { width: 100%; height: 60px; display: block; }
+
+/* ── toast ────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: 13.5px;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform var(--t-med), opacity var(--t-med);
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.ok { border-color: rgba(34,197,138,.4); }
+.toast.ok .icon { color: var(--ok); }
+@media (max-width: 480px) { .toast { left: 16px; right: 16px; bottom: 16px; } }
+
+/* ── select + log box ─────────────────────────────────────────── */
+.form select {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 11px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-grad-1);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.form select:focus { outline: none; border-color: var(--primary); box-shadow: var(--ring); }
+.logbox {
+  margin: 0;
+  max-height: 440px;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bg-grad-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── utilities ────────────────────────────────────────────────── */
 .inline { display: inline; }
 .push-right { margin-left: auto; }
 .login-card .hint { margin: -12px 0 16px; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.empty-state .icon { width: 34px; height: 34px; color: var(--muted-2); }
 
 /* ── footer ───────────────────────────────────────────────────── */
 .footer {

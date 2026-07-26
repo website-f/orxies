@@ -1,4 +1,4 @@
-// Package config defines the YAML schema and loader for jobcloud.
+// Package config defines the YAML schema and loader for orxies.
 //
 // The global config (config.yml) is loaded once at startup. Per-site
 // configs (sites/*.yml) are loaded at startup and hot-reloaded on
@@ -34,11 +34,11 @@ type Global struct {
 	// Admin user(s).
 	Admins []Admin `yaml:"admins"`
 	// Secret used to sign session cookies. 32+ random bytes.
-	// If empty at startup, jobcloud generates one and writes it to
+	// If empty at startup, orxies generates one and writes it to
 	// <data>/secret.key — persistent across restarts.
 	SessionSecret string `yaml:"session_secret"`
-	// Trust X-Forwarded-* headers (set true only if jobcloud sits
-	// behind another L7 proxy — by default jobcloud IS the edge).
+	// Trust X-Forwarded-* headers (set true only if orxies sits
+	// behind another L7 proxy — by default orxies IS the edge).
 	TrustForwardedHeaders bool `yaml:"trust_forwarded_headers"`
 
 	// AdminAllowCIDRs optionally restricts which client IPs may reach
@@ -61,7 +61,7 @@ type Admin struct {
 	Username     string `yaml:"username"`
 	PasswordHash string `yaml:"password_hash"` // bcrypt
 	// TOTPSecret is the base32 shared secret for time-based 2FA. Empty
-	// disables 2FA for this admin. Generate with `jobcloud totp <user>`.
+	// disables 2FA for this admin. Generate with `orxies totp <user>`.
 	TOTPSecret string `yaml:"totp_secret"`
 }
 
@@ -336,6 +336,12 @@ func DeleteSite(sitesDir, filename string) error {
 		return errors.New("invalid filename")
 	}
 	return os.Remove(filepath.Join(sitesDir, filename))
+}
+
+// SiteFilename returns the on-disk filename SaveSite uses for a domain,
+// so callers (e.g. the deploy manager) can delete the right file.
+func SiteFilename(domain string) string {
+	return sanitizeFilename(domain) + ".yml"
 }
 
 func sanitizeFilename(domain string) string {

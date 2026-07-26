@@ -1,5 +1,5 @@
-# Per-site config. Drop one of these in /opt/jobcloud/jobcloud/sites/
-# (rename to <domain>.yml — the .example suffix is what stops jobcloud
+# Per-site config. Drop one of these in /opt/orxies/orxies/sites/
+# (rename to <domain>.yml — the .example suffix is what stops orxies
 # from picking up this file). Hot-reloaded on save.
 
 domain: example.com
@@ -24,7 +24,7 @@ custom_headers:
 
 # ── Static site variant ──────────────────────────────────────────────
 # To serve raw HTML / a portfolio / a Next.js or Vite static export with
-# NO sidecar server: drop the built files in jobcloud's www/<name>/ and
+# NO sidecar server: drop the built files in orxies's www/<name>/ and
 # set `root` instead of `upstreams`. Everything else (TLS, rate limit,
 # exploit blocking, custom headers) works the same.
 #

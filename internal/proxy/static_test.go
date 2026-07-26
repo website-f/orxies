@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/config"
+	"orxies/internal/metrics"
 )
 
 func writeFile(t *testing.T, path, body string) {

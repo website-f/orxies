@@ -1,4 +1,4 @@
-// Package auth implements admin login for the jobcloud web UI.
+// Package auth implements admin login for the orxies web UI.
 //
 // Design:
 //   - Admin users live in the global config file (bcrypt password
@@ -26,12 +26,12 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"jobcloud/internal/config"
+	"orxies/internal/config"
 )
 
 const (
-	cookieName     = "jobcloud_session"
-	csrfCookieName = "jobcloud_csrf"
+	cookieName     = "orxies_session"
+	csrfCookieName = "orxies_csrf"
 	sessionMaxAge  = 24 * time.Hour
 	pendingMaxAge  = 5 * time.Minute // window to enter the 2FA code
 )
@@ -303,7 +303,7 @@ func (m *Manager) VerifyPending(tok string) (string, bool) {
 	return user, true
 }
 
-// HashPassword is exposed so a future `jobcloud hash` CLI subcommand
+// HashPassword is exposed so a future `orxies hash` CLI subcommand
 // can generate password_hash values for config.yml.
 func HashPassword(plaintext string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)

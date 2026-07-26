@@ -1,18 +1,65 @@
-# jobcloud
+# orxies
 
-A single-binary reverse proxy + admin UI for hosting many projects on one VPS.
+**A self-hosted deployment platform for your own VPS.** Point a domain, connect a Git repo, and orxies figures out how to build it, run it, and put it live over HTTPS — for static sites, React/Vue/Next, WordPress, PHP, Python, Go, or anything with a Dockerfile. No SSH, no manual `git clone`, no per-project nginx/certbot wrangling.
 
-Stand up `jobcloud` once. From then on, every new project is "publish to `127.0.0.1:<port>` + add one row in the admin UI" — no nginx files to edit, no certbot to run, no per-project compose changes.
+Think of it as the security-first, single-binary, open-source lane next to Vercel/Railway — but running entirely on **your** server, with **your** data.
 
-## Why this exists
+> **Status — read this first.** orxies today is a hardened **reverse proxy + static host + automatic TLS + admin GUI**, and a working **deploy engine**: **connect a Git repo** (or point at a folder), and the Projects section clones it, auto-detects the type, builds it (any `Dockerfile`), runs it in a container, health-checks it, and routes your domain — with **zero-config Nixpacks builds** (Node/Next/Python/Go/PHP, no Dockerfile needed), **zero-downtime redeploys**, **deploy-on-push webhooks**, encrypted tokens for private repos, live logs, and stop/remove — plus **managed databases** (Postgres/MySQL/Redis) with credentials auto-injected into your app (Phases 3–5 ✅). Still on the roadmap: per-framework recipes (WordPress, static-export), rollback history, and service backups. Throughout these docs, **✅ = works today**, **🚧 = planned**. Full plan + diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-You have a VPS. You want to host project A on `a.com`, project B on `b.com`, project C on `c.com`. The standard answers are:
+## The idea
 
-- **nginx + certbot per project** → fragile, easy to break, lots of YAML/conf to keep in sync
-- **Traefik with labels** → forces you to touch every project's compose
-- **Nginx Proxy Manager (NPM)** → great, but the UI is dated and the metrics layer is shallow
+```mermaid
+flowchart LR
+    GH[("Your GitHub repo")] -->|"connect once"| JC
+    DOM["Your domain"] -->|"point at VPS"| JC
+    subgraph JC["orxies on your VPS"]
+        direction TB
+        DETECT["Detect project type"] --> BUILD["Build it"] --> RUN["Run it"] --> TLS["Issue TLS"]
+    end
+    JC -->|"serve over HTTPS"| LIVE(["Live and public"])
+```
 
-`jobcloud` is what NPM would be if you rebuilt it today: dark-themed live dashboard with per-site request rates and p95 latencies, a clean YAML-driven config you can version-control, hot-reload on save, and a 12 MB Go binary that uses ~30 MB RAM idle.
+You bring a repo and a domain. orxies recognises what the project is (a Vite SPA needs `npm run build` and its `dist/` served; a Next.js app needs a running node server; WordPress needs PHP + a database; a folder of HTML just needs serving), does the right thing, and keeps it online.
+
+## What you can deploy
+
+| Project type | orxies's job | Today |
+|---|---|---|
+| **Static / raw HTML** | Serve the folder directly over TLS | ✅ |
+| **Reverse-proxy any running app** (Docker or a bare `host:port`) | Route a domain to it, terminate TLS | ✅ |
+| **React / Vue / Vite (SPA)** | Detect → `npm run build` → serve `dist/` with SPA fallback | 🚧 |
+| **Next.js / Nuxt (SSR)** | Detect → build → run the node server → route domain | 🚧 |
+| **WordPress** | Run WordPress + a managed or external database, persistent uploads | 🚧 |
+| **Raw PHP** | Run PHP-FPM + a web server, optional database | 🚧 |
+| **Anything with a Dockerfile** | Build the image, run it, route the domain (via Projects) | ✅ |
+| **Node / Next / Python / Go / PHP (no Dockerfile)** | Nixpacks zero-config auto-build → run → route | ✅ |
+| **docker-compose** | Bring up the stack, route the web service | 🚧 |
+
+Anything that needs a database gets a choice: **use an orxies-managed one** (Postgres/MySQL/Redis in a container on a shared network, credentials generated + injected as `DATABASE_URL` for you) or **bring your own** connection string. ✅
+
+## The deploy flow (target)
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant JC as orxies GUI
+    participant Agent as Builder
+    participant GH as GitHub
+    You->>JC: Connect repo + choose domain
+    JC->>GH: Clone
+    JC->>Agent: Detect type → propose build/run
+    You->>JC: Confirm (or tweak) + set env / database
+    Agent->>Agent: Build → start → health-check
+    JC->>JC: Route domain + issue TLS
+    JC-->>You: https://yourdomain.com is live
+    Note over GH,Agent: Push to your branch later → auto rebuild & swap
+```
+
+## Why it exists
+
+Hosting several projects on one VPS usually means juggling nginx + certbot per project, or touching every project's compose for Traefik labels, or running a dated Nginx Proxy Manager. And *deploying* those projects is a separate manual chore of `git clone`, build, systemd/pm2, and repeat.
+
+orxies collapses all of that into one hardened GUI: **domains** (add, point, TLS), **projects** (connect a repo, auto-build, deploy, roll back), and **services** (managed databases) — on a single ~12 MB Go core that idles around 30 MB of RAM. Every mutation is CSRF-protected, 2FA-guarded, rate-limited, and audit-logged (see [Security](#security-notes)).
 
 ## Features
 
@@ -25,11 +72,11 @@ You have a VPS. You want to host project A on `a.com`, project B on `b.com`, pro
 - **WebSocket** + HTTP/2 upgrade passthrough.
 - **Hot reload** — drop a YAML file in `sites/`, save in the UI, or `git pull` your sites repo. Routing updates within 200ms. No restart.
 - **Hardened admin auth** — bcrypt passwords, optional TOTP 2FA, signed-cookie sessions, CSRF tokens on every mutation, login rate-limiting + lockout, a strict Content-Security-Policy and security-header set, an optional source-IP allowlist, and an append-only audit log. Admin UI binds to `127.0.0.1` only — reach it via SSH tunnel or a VPN.
-- **Portable** — back up the `/opt/jobcloud/` folder (compose + sites + certs + data), drop on a new VPS, done.
+- **Portable** — back up the `/opt/orxies/` folder (compose + sites + certs + data), drop on a new VPS, done.
 
 ## Pre-flight checklist (read before deploying)
 
-`jobcloud` runs with `network_mode: host` and binds 80/443 + 8090 directly on the VPS. Before bringing it up, make sure:
+`orxies` runs with `network_mode: host` and binds 80/443 + 8090 directly on the VPS. Before bringing it up, make sure:
 
 1. **No other process holds 80/443.** Common offenders: an existing nginx/Caddy/NPM container, a system caddy/nginx package, or a previous proxy you forgot about.
    ```bash
@@ -44,17 +91,17 @@ You have a VPS. You want to host project A on `a.com`, project B on `b.com`, pro
 ## Quick start (new VPS, from scratch)
 
 ```bash
-# 1. Allow non-root processes to bind 80/443 (jobcloud runs as uid 1001).
+# 1. Allow non-root processes to bind 80/443 (orxies runs as uid 1001).
 #    Without this, the container starts but the listeners fail with
 #    "permission denied" and the proxy crash-loops.
-echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-jobcloud.conf
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-orxies.conf
 sudo sysctl --system
 
-# 2. Clone (or copy) jobcloud into /opt
-sudo mkdir -p /opt/jobcloud && sudo chown $USER:$USER /opt/jobcloud
-cd /opt/jobcloud
-git clone <this-repo> .            # or scp the jobcloud/ folder here
-cd jobcloud                        # if the repo nests it; otherwise stay put
+# 2. Clone (or copy) orxies into /opt
+sudo mkdir -p /opt/orxies && sudo chown $USER:$USER /opt/orxies
+cd /opt/orxies
+git clone <this-repo> .            # or scp the orxies/ folder here
+cd orxies                        # if the repo nests it; otherwise stay put
 
 # 3. Create the runtime dirs and hand them to uid 1001 (the container user).
 #    Without this, the admin UI shows "permission denied" when you save a site.
@@ -65,7 +112,7 @@ sudo chown -R 1001:1001 sites certs data
 docker compose build
 
 # 5. Generate a bcrypt admin password hash.
-docker compose run --rm jobcloud hash 'your-strong-password-here'
+docker compose run --rm orxies hash 'your-strong-password-here'
 #    Copy the $2a$... line from the output.
 
 # 6. Create config.yml.
@@ -80,7 +127,7 @@ nano config.yml
 
 # 7. Start.
 docker compose up -d
-docker compose logs -f jobcloud
+docker compose logs -f orxies
 ```
 
 You should see three `... listener up` lines (`admin UI`, `HTTP`, `HTTPS`) and no `permission denied`. Ctrl+C exits the log follow; the container keeps running.
@@ -95,7 +142,7 @@ ssh -L 8090:127.0.0.1:8090 user@your-vps-ip
 
 Leave that terminal open. In your browser go to `http://127.0.0.1:8090` (NOT the VPS IP — that will refuse). Log in with the admin credentials from `config.yml`, click **+ Add site**.
 
-> If the browser shows "connection refused", the tunnel is dead (SSH session closed) or jobcloud isn't listening on 8090 on the VPS. Verify VPS-side with `ss -tlnp | grep 8090` — should show jobcloud bound on `127.0.0.1:8090`.
+> If the browser shows "connection refused", the tunnel is dead (SSH session closed) or orxies isn't listening on 8090 on the VPS. Verify VPS-side with `ss -tlnp | grep 8090` — should show orxies bound on `127.0.0.1:8090`.
 
 ### Reaching it over a VPN instead of an SSH tunnel
 
@@ -106,13 +153,13 @@ If re-opening an SSH tunnel every time is tedious, put the VPS on a private over
 
 The IP allowlist matches the **direct peer IP** — a forwarded header can't spoof past it. Keep the host firewall dropping public traffic to 8090 regardless (`ufw deny 8090` / cloud security group). VPN + allowlist + firewall is defence in depth, not a single wall.
 
-> The VPN itself (installing Tailscale/WireGuard, firewall rules) is host-level ops — configure it on the VPS, not inside jobcloud.
+> The VPN itself (installing Tailscale/WireGuard, firewall rules) is host-level ops — configure it on the VPS, not inside orxies.
 
 ## Adding a site
 
 **Via the UI:** Click "+ Add site", fill out the form, save. The new site is live within ~200ms; if `TLS auto` is on, the cert arrives ~10–30s later (depends on Let's Encrypt).
 
-**Via a YAML file:** drop one in `sites/<domain>.yml` — `jobcloud` picks it up automatically.
+**Via a YAML file:** drop one in `sites/<domain>.yml` — `orxies` picks it up automatically.
 
 ```yaml
 domain: newdomain.com
@@ -134,26 +181,26 @@ rate_limit:
 
 DNS for the domain must already point at the VPS. Test with `dig +short newdomain.com`.
 
-## What can sit behind jobcloud
+## What can sit behind orxies
 
-jobcloud is a reverse proxy + TLS terminator, not a Docker-specific tool. An upstream is **any `host:port` that speaks HTTP** — the only link between jobcloud and your project is the port number. It doesn't read your project folders and doesn't care where they live (`/opt` is just convention). That means all of these work:
+orxies is a reverse proxy + TLS terminator, not a Docker-specific tool. An upstream is **any `host:port` that speaks HTTP** — the only link between orxies and your project is the port number. It doesn't read your project folders and doesn't care where they live (`/opt` is just convention). That means all of these work:
 
 - a Docker container that publishes to `127.0.0.1:<port>`
 - a bare process on the host — `node`, `gunicorn`, `pm2`, a Go binary — listening on `127.0.0.1:<port>` (run it under systemd/pm2 so it survives reboots)
 - an existing nginx/apache + php-fpm stack (e.g. **WordPress**) listening on a loopback port
-- **static files** served directly by jobcloud (see below) — no sidecar server at all
+- **static files** served directly by orxies (see below) — no sidecar server at all
 
-The universal recipe: (1) make the app listen on `127.0.0.1:<uniquePort>` over plain HTTP (jobcloud does the TLS), (2) point DNS at the VPS, (3) add a site with that upstream. Apps that build absolute URLs (WordPress, Django, Rails) should honor the `X-Forwarded-Proto` header jobcloud sends, to avoid redirect loops.
+The universal recipe: (1) make the app listen on `127.0.0.1:<uniquePort>` over plain HTTP (orxies does the TLS), (2) point DNS at the VPS, (3) add a site with that upstream. Apps that build absolute URLs (WordPress, Django, Rails) should honor the `X-Forwarded-Proto` header orxies sends, to avoid redirect loops.
 
 ### Hosting a static site (raw HTML, portfolio, SPA, static export)
 
-No upstream, no sidecar. Drop your built files into jobcloud's `www/<name>/` folder and point a site's `root` at `<name>`:
+No upstream, no sidecar. Drop your built files into orxies's `www/<name>/` folder and point a site's `root` at `<name>`:
 
 ```bash
 # on the VPS
-mkdir -p /opt/jobcloud/jobcloud/www/portfolio
-cp -r ./my-portfolio/* /opt/jobcloud/jobcloud/www/portfolio/
-sudo chown -R 1001:1001 /opt/jobcloud/jobcloud/www   # container runs as uid 1001
+mkdir -p /opt/orxies/orxies/www/portfolio
+cp -r ./my-portfolio/* /opt/orxies/orxies/www/portfolio/
+sudo chown -R 1001:1001 /opt/orxies/orxies/www   # container runs as uid 1001
 ```
 
 Then add the site (UI or YAML):
@@ -172,7 +219,7 @@ Directory listings are disabled (a folder with no `index.html` → 404). TLS, ra
 
 ## Onboarding a new project (the workflow you'll use every time)
 
-Every new project on this VPS follows the same six steps. The only real thinking is in step 3 — what to edit in the project's compose so it cooperates with jobcloud instead of fighting it for ports 80/443.
+Every new project on this VPS follows the same six steps. The only real thinking is in step 3 — what to edit in the project's compose so it cooperates with orxies instead of fighting it for ports 80/443.
 
 ### The mental model
 
@@ -181,7 +228,7 @@ public internet
        │
        ▼  :80 / :443
 ┌──────────────┐
-│   jobcloud   │   ← single proxy, all TLS lives here
+│   orxies   │   ← single proxy, all TLS lives here
 └──────┬───────┘
        │  HTTP only, plaintext, over host loopback
        ▼  127.0.0.1:<your-project-port>
@@ -191,7 +238,7 @@ public internet
 └──────────────────────────────────────┘
 ```
 
-Each project picks a unique host loopback port (e.g. `127.0.0.1:8100`), publishes its HTTP entrypoint there, and jobcloud routes the public domain to it. **Projects never bind 80 or 443 on the host** — that's jobcloud's job.
+Each project picks a unique host loopback port (e.g. `127.0.0.1:8100`), publishes its HTTP entrypoint there, and orxies routes the public domain to it. **Projects never bind 80 or 443 on the host** — that's orxies's job.
 
 ### Step 1 — Pick a port range for the project
 
@@ -256,7 +303,7 @@ services:
       - "127.0.0.1:8123:8000"   # was "8000:8000"
 ```
 
-#### Case C — Project has its own nginx with TLS (full pre-jobcloud setup)
+#### Case C — Project has its own nginx with TLS (full pre-orxies setup)
 
 This is what the jobapp backend looked like — an internal nginx terminating TLS on 80/443 with `ssl_certificate` paths. Three edits:
 
@@ -269,7 +316,7 @@ This is what the jobapp backend looked like — an internal nginx terminating TL
        - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
        # - ./docker/nginx/certs:/etc/nginx/certs:ro   ← DELETE this line
    ```
-2. **nginx config** — delete the `listen 443 ssl;` server block, the `ssl_certificate` lines, and the HTTP→HTTPS redirect. Keep one `listen 80;` block that proxies straight to the app. Pass jobcloud's `X-Forwarded-Proto` through to the app:
+2. **nginx config** — delete the `listen 443 ssl;` server block, the `ssl_certificate` lines, and the HTTP→HTTPS redirect. Keep one `listen 80;` block that proxies straight to the app. Pass orxies's `X-Forwarded-Proto` through to the app:
    ```nginx
    set_real_ip_from 127.0.0.1;
    real_ip_header X-Forwarded-For;
@@ -285,7 +332,7 @@ This is what the jobapp backend looked like — an internal nginx terminating TL
      }
    }
    ```
-3. **App-side** — if the app trusted a forwarded-proto header (e.g. Django's `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')`), keep that setting. It now reads jobcloud's value.
+3. **App-side** — if the app trusted a forwarded-proto header (e.g. Django's `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')`), keep that setting. It now reads orxies's value.
 
 ### Step 4 — Bring the project up
 
@@ -295,9 +342,9 @@ ss -tlnp | grep 127.0.0.1:8123     # confirm it's actually listening on the loop
 curl -I http://127.0.0.1:8123/     # should return a response from the app (200, 302, 404 are all fine — anything but connection refused)
 ```
 
-If `curl` works, jobcloud can reach it.
+If `curl` works, orxies can reach it.
 
-### Step 5 — Add the site in jobcloud
+### Step 5 — Add the site in orxies
 
 SSH-tunnel to the admin UI (`ssh -L 8090:127.0.0.1:8090 user@vps`) → open `http://127.0.0.1:8090` → **+ Add site**:
 
@@ -315,12 +362,12 @@ Save.
 
 ```bash
 # on the VPS
-docker logs -f jobcloud-jobcloud-1
+docker logs -f orxies-orxies-1
 ```
 
 Within ~10–30s you'll see `obtained certificate for app.example.com`. Hit `https://app.example.com` in a browser — should serve the app over a real TLS cert.
 
-If you see "Bad Gateway" with 100% errors on the jobcloud dashboard, the upstream port is wrong. Re-do the `curl -I http://127.0.0.1:<port>/` check from step 4 and update the site's upstream field.
+If you see "Bad Gateway" with 100% errors on the orxies dashboard, the upstream port is wrong. Re-do the `curl -I http://127.0.0.1:<port>/` check from step 4 and update the site's upstream field.
 
 ### What this looks like on disk
 
@@ -328,7 +375,7 @@ After onboarding a couple of projects:
 
 ```
 /opt/
-├── jobcloud/jobcloud/        ← jobcloud itself
+├── orxies/orxies/        ← orxies itself
 │   ├── docker-compose.yml
 │   ├── config.yml
 │   ├── sites/
@@ -344,13 +391,13 @@ After onboarding a couple of projects:
         └── docker/nginx/default.conf
 ```
 
-jobcloud doesn't read or care about the project folders — they're just where YOU keep code. The link between them is the **port number** in the site config, nothing else.
+orxies doesn't read or care about the project folders — they're just where YOU keep code. The link between them is the **port number** in the site config, nothing else.
 
 ## Layout
 
 ```
-/opt/jobcloud/jobcloud/
-├── docker-compose.yml        # what runs jobcloud itself
+/opt/orxies/orxies/
+├── docker-compose.yml        # what runs orxies itself
 ├── config.yml                # global config (admins, ACME email)
 ├── sites/
 │   ├── newdomain.com.yml     # per-site config files
@@ -366,7 +413,7 @@ Back up `config.yml`, `sites/`, `certs/`, `data/`. That's everything.
 ```
                           ┌──────────────────────────────┐
    :80   ─── ACME ───────►│                              │
-   :443  ─── TLS ────────►│  jobcloud (Go binary)        │
+   :443  ─── TLS ────────►│  orxies (Go binary)        │
                           │                              │
    127.0.0.1:8090 ───────►│   ┌──────────────┐           │
    (admin UI via SSH)     │   │ admin UI     │           │
@@ -402,12 +449,12 @@ client → ServeHTTP → Host lookup (O(1) map) → rate limit → reverse proxy
 
 **Logs:**
 ```bash
-docker compose logs -f jobcloud
+docker compose logs -f orxies
 ```
 
 **Restart with zero downtime-ish** (existing connections drain for 30s, new ones queue ≤ a few hundred ms while listeners come back):
 ```bash
-docker compose restart jobcloud
+docker compose restart orxies
 ```
 
 **Rebuild after a code change:**
@@ -417,17 +464,17 @@ docker compose build && docker compose up -d
 
 **Add a new admin:**
 ```bash
-docker compose run --rm jobcloud hash 'newpassword'
+docker compose run --rm orxies hash 'newpassword'
 # add another `admins:` entry in config.yml
-docker compose restart jobcloud
+docker compose restart orxies
 ```
 
 **Enable 2FA for an admin:**
 ```bash
-docker compose run --rm jobcloud totp admin
+docker compose run --rm orxies totp admin
 # paste the printed totp_secret under that admin in config.yml,
 # scan the otpauth URI into your authenticator app, then:
-docker compose restart jobcloud
+docker compose restart orxies
 ```
 
 **Read the audit log:**
@@ -441,40 +488,40 @@ The migration is just "stop on old, archive, restore on new, repoint DNS." Detai
 
 ```bash
 # ===== On the OLD VPS =====
-cd /opt/jobcloud/jobcloud
-docker compose down                            # stop jobcloud cleanly
+cd /opt/orxies/orxies
+docker compose down                            # stop orxies cleanly
 
-# Archive everything jobcloud needs: compose file, config, sites, certs, data.
+# Archive everything orxies needs: compose file, config, sites, certs, data.
 # Sudo because certs/data are owned by uid 1001.
-sudo tar czf /tmp/jobcloud-backup.tgz \
+sudo tar czf /tmp/orxies-backup.tgz \
     docker-compose.yml \
     config.yml \
     sites \
     certs \
     data
 
-scp /tmp/jobcloud-backup.tgz user@new-vps:/tmp/
+scp /tmp/orxies-backup.tgz user@new-vps:/tmp/
 
 # ===== On the NEW VPS =====
 # 1. Pre-flight: nothing else holding 80/443.
 ss -tlnp | grep -E ':80\b|:443\b'
 
 # 2. Lower the unprivileged-port floor (same as fresh install).
-echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-jobcloud.conf
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-orxies.conf
 sudo sysctl --system
 
 # 3. Restore.
-sudo mkdir -p /opt/jobcloud/jobcloud
-sudo chown $USER:$USER /opt/jobcloud /opt/jobcloud/jobcloud
-cd /opt/jobcloud/jobcloud
-tar xzf /tmp/jobcloud-backup.tgz
+sudo mkdir -p /opt/orxies/orxies
+sudo chown $USER:$USER /opt/orxies /opt/orxies/orxies
+cd /opt/orxies/orxies
+tar xzf /tmp/orxies-backup.tgz
 
 # 4. Re-apply ownership (tar preserves it, but only if extracted as root).
 sudo chown -R 1001:1001 sites certs data
 
 # 5. Bring it up.
 docker compose up -d
-docker compose logs -f jobcloud
+docker compose logs -f orxies
 
 # 6. Repoint DNS A records → new VPS IP.
 #    Existing LE certs in certs/ keep working until they expire; renewals
@@ -501,38 +548,38 @@ Typical culprits: a previous `caddy` / `nginx` / `npm` Docker container, or a ho
 The sysctl from step 1 of Quick Start wasn't applied. Re-run:
 
 ```bash
-echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-jobcloud.conf
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-orxies.conf
 sudo sysctl --system
-docker restart jobcloud-jobcloud-1
+docker restart orxies-orxies-1
 ```
 
-Then `docker logs jobcloud-jobcloud-1 --tail 20` should show all three listeners up without errors.
+Then `docker logs orxies-orxies-1 --tail 20` should show all three listeners up without errors.
 
 ### Admin UI: "permission denied" when saving a site
 
-The `sites/` (or `certs/`, `data/`) dir is owned by root on the host, but jobcloud runs as uid 1001 inside the container. Fix:
+The `sites/` (or `certs/`, `data/`) dir is owned by root on the host, but orxies runs as uid 1001 inside the container. Fix:
 
 ```bash
-sudo chown -R 1001:1001 /opt/jobcloud/jobcloud/sites \
-                        /opt/jobcloud/jobcloud/certs \
-                        /opt/jobcloud/jobcloud/data
+sudo chown -R 1001:1001 /opt/orxies/orxies/sites \
+                        /opt/orxies/orxies/certs \
+                        /opt/orxies/orxies/data
 ```
 
 No restart needed — just retry **Save** in the UI.
 
 ### Site loads but shows "Bad Gateway" (100% errors in dashboard)
 
-jobcloud can't reach the upstream. Cause: the project's service is bound to `0.0.0.0:<port>` or the wrong loopback. Verify the project's `docker-compose.yml` has `ports: "127.0.0.1:<port>:..."` and that the container is running:
+orxies can't reach the upstream. Cause: the project's service is bound to `0.0.0.0:<port>` or the wrong loopback. Verify the project's `docker-compose.yml` has `ports: "127.0.0.1:<port>:..."` and that the container is running:
 
 ```bash
 ss -tlnp | grep '127.0.0.1:<your-port>'
 curl -I http://127.0.0.1:<your-port>/
 ```
 
-If the curl works on the VPS but jobcloud still gets "Bad Gateway", confirm jobcloud is on host networking:
+If the curl works on the VPS but orxies still gets "Bad Gateway", confirm orxies is on host networking:
 
 ```bash
-docker inspect jobcloud-jobcloud-1 --format '{{.HostConfig.NetworkMode}}'
+docker inspect orxies-orxies-1 --format '{{.HostConfig.NetworkMode}}'
 # Should print: host
 ```
 
@@ -542,7 +589,7 @@ The original SSH session that opened the tunnel disconnected (network blip, idle
 
 ### Admin UI loads from VPS public IP? It shouldn't
 
-If `http://<vps-ip>:8090` works from the public internet, your `config.yml` has `admin_addr: ":8090"` (binds all interfaces). Change to `admin_addr: "127.0.0.1:8090"` and `docker compose restart jobcloud`. The admin UI MUST be reachable only via SSH tunnel.
+If `http://<vps-ip>:8090` works from the public internet, your `config.yml` has `admin_addr: ":8090"` (binds all interfaces). Change to `admin_addr: "127.0.0.1:8090"` and `docker compose restart orxies`. The admin UI MUST be reachable only via SSH tunnel.
 
 ### `Welcome` HTML appears for the wrong domain
 
@@ -554,23 +601,44 @@ The admin UI controls domains and TLS on a live server, so it's hardened accordi
 
 - **Loopback by default.** Admin UI binds `127.0.0.1:8090`. **Never expose port 8090 publicly.** Reach it via SSH tunnel or a VPN (see above). If you must front it with TLS, set `admin_force_secure_cookie: true` so cookies are `Secure` + HSTS is sent.
 - **IP allowlist.** `admin_allow_cidrs` (empty by default) restricts the admin UI to given subnets, matched on the direct peer IP — forwarded headers can't spoof it.
-- **Bcrypt passwords** (cost 10). Use a long unique password. Generate the hash with `jobcloud hash '<pw>'`.
-- **TOTP two-factor auth** (optional, per admin). Run `jobcloud totp <username>`, paste the printed `totp_secret` into that admin's config entry, scan the otpauth URI into an authenticator app, and restart. Login then requires a 6-digit code (SHA1 / 6 digits / 30 s, ±1 step skew).
+- **Bcrypt passwords** (cost 10). Use a long unique password. Generate the hash with `orxies hash '<pw>'`.
+- **TOTP two-factor auth** (optional, per admin). Run `orxies totp <username>`, paste the printed `totp_secret` into that admin's config entry, scan the otpauth URI into an authenticator app, and restart. Login then requires a 6-digit code (SHA1 / 6 digits / 30 s, ±1 step skew).
 - **Login rate-limiting.** 5 failed attempts from an IP triggers a 15-minute lockout (covers both the password and the 2FA step). The tracker self-prunes so it can't be memory-exhausted.
 - **CSRF protection.** Every state-changing request (login, site create/update/delete/toggle) requires a signed double-submit token; requests without a valid token are rejected 403.
 - **Strict security headers** on the admin UI: a locked-down `Content-Security-Policy` (no external hosts, no inline script/style — fonts, CSS, JS and icons are all self-hosted), `X-Frame-Options: DENY` + `frame-ancestors 'none'` (no clickjacking), `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and HSTS when TLS-fronted.
 - **Audit log.** Admin actions (logins, 2FA, site create/update/delete/toggle, logout) are appended as JSON lines to `data/audit.log` (`user`, `ip`, `action`, `target`, `result`, `time`) and mirrored to the container log.
 - **Input validation.** Domains + aliases are validated as real hostnames before being written; upstreams must be `host:port`; request bodies to the admin UI are size-capped; the static file server refuses directory listings.
 - **Sessions.** HMAC-signed with a 48-byte secret at `data/secret.key`. Cookies are `HttpOnly`, `SameSite=Lax`, `Secure` when over HTTPS (or when `admin_force_secure_cookie` is set), 24h expiry. Removing an admin from `config.yml` invalidates their existing sessions.
-- `trust_forwarded_headers: false` by default — `jobcloud` uses the direct peer IP for rate limiting + logs. Only flip true if you put another trusted L7 proxy in front (e.g. Cloudflare).
+- `trust_forwarded_headers: false` by default — `orxies` uses the direct peer IP for rate limiting + logs. Only flip true if you put another trusted L7 proxy in front (e.g. Cloudflare).
 - The container runs as uid 1001 (non-root). Drops all capabilities except `NET_BIND_SERVICE`.
 
 ## Limitations / non-goals
 
 - **No HTTP/3 / QUIC.** stdlib `net/http` doesn't natively serve HTTP/3 yet. Add later via a quic-go layer if needed.
-- **No long-term metric storage.** Per-site stats are kept in a 60-second sliding window + 1024-sample latency ring. For real history, point a Prometheus exporter at jobcloud — not implemented yet.
+- **No long-term metric storage.** Per-site stats are kept in a 60-second sliding window + 1024-sample latency ring. For real history, point a Prometheus exporter at orxies — not implemented yet.
 - **No multi-node clustering.** Single instance per VPS. For high availability, run two VPSes behind DNS round-robin or a real load balancer.
 - **No DNS-01 challenges.** Only HTTP-01 for now. Means certs can only issue for domains pointed at the VPS's public IP at issuance time.
+
+## Roadmap
+
+orxies is built in the open, one shippable phase at a time. Every phase leaves the tool fully working.
+
+| Phase | Theme | Status |
+|---|---|---|
+| 1 | Security hardening — 2FA, CSRF, rate-limit, IP allowlist, audit log, CSP | ✅ done |
+| 2a | Static hosting — serve a folder directly, SPA fallback | ✅ done |
+| 2b | UI overhaul — professional icons, live sparklines, per-site stats | ✅ done |
+| 3 | **Runtime foundation** — SQLite store, Project model, Docker orchestration agent, deploy-from-path, Dockerfile builds, zero-downtime redeploy, Projects GUI | ✅ done |
+| 4 | **Git + build** — Git repo source (clone/pull), encrypted tokens for private repos, richer auto-detect, deploy-on-push webhooks | ✅ done |
+| 5 | **Managed services** — Postgres/MySQL/Redis add-ons, encrypted creds, env injection, external DBs, Services GUI | ✅ done |
+| 6 | Framework polish — WordPress, static-export detection, rollbacks, service backups, preview envs | 🚧 next |
+| 7 | Scale & DevOps — replicas/load-balancing, alerts, multi-node, RBAC/teams | 🚧 |
+
+Full detail, architecture diagrams, and the design rationale: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+## Contributing
+
+This is meant to be a tool people can actually run and improve. Good first areas: the project **auto-detection matrix** (§5 of the architecture doc), framework **build recipes**, and the **admin GUI**. Please open an issue to discuss anything larger than a bug fix so we can keep the phases coherent. The core stays a single Go binary; heavy lifting lives in the containers it orchestrates.
 
 ## License
 

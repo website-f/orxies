@@ -1,11 +1,34 @@
 {{define "site-form"}}
 <section class="hero">
   <h1>{{if .New}}Add site{{else}}{{.Site.Domain}}{{end}}</h1>
-  <p class="muted">{{if .New}}Map a public domain to one or more upstream services running on this VPS.{{else}}Loaded from <span class="mono">{{.Site.Filename}}</span>{{end}}</p>
+  <p class="muted">{{if .New}}Map a public domain to upstream services, or serve a folder of static files.{{else}}Loaded from <span class="mono">{{.Site.Filename}}</span>{{end}}</p>
 </section>
 
-{{if .Error}}<div class="alert error">{{.Error}}</div>{{end}}
-{{if .Saved}}<div class="alert ok">Saved.</div>{{end}}
+{{if .Error}}<div class="alert error">{{icon "alert"}} {{.Error}}</div>{{end}}
+
+{{if and (not .New) .Stats}}
+<section class="card">
+  <header class="card-header">
+    <h2 class="hero-title-row">{{icon "activity"}} Live stats</h2>
+    <span class="muted small">last 60s · totals since start</span>
+  </header>
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">req / min</div><div class="stat-value">{{.Stats.ReqsPerMin}}</div></div>
+    <div class="stat"><div class="stat-label">p50 ms</div><div class="stat-value">{{.Stats.P50}}</div></div>
+    <div class="stat"><div class="stat-label">p95 ms</div><div class="stat-value">{{.Stats.P95}}</div></div>
+    <div class="stat"><div class="stat-label">p99 ms</div><div class="stat-value">{{.Stats.P99}}</div></div>
+    <div class="stat"><div class="stat-label">total req</div><div class="stat-value">{{.Stats.TotalRequests}}</div></div>
+    <div class="stat"><div class="stat-label">total out</div><div class="stat-value">{{.Stats.TotalBytes}}</div></div>
+    <div class="stat"><div class="stat-label">errors</div><div class="stat-value {{if gt .Stats.TotalErrors 0}}warn{{end}}">{{.Stats.TotalErrors}}</div></div>
+  </div>
+  {{sparkLarge .Stats.Series}}
+  {{if .Stats.Statuses}}
+  <div class="status-chips">
+    {{range .Stats.Statuses}}<span class="status-chip {{.Class}}">{{if .Code}}{{.Code}}{{else}}err{{end}} <span class="muted">×{{.Count}}</span></span>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}
 
 <form method="post" action="{{if .New}}/sites{{else}}/sites/{{.Site.Filename}}{{end}}" class="card form">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -23,8 +46,8 @@
   </label>
 
   <fieldset>
-    <legend>Static site (optional)</legend>
-    <div class="muted small">Serve files directly — no upstream needed. Drop your folder in jobcloud's <span class="mono">www/&lt;name&gt;/</span> and set the root to <span class="mono">&lt;name&gt;</span> (or an absolute path). Overrides upstreams.</div>
+    <legend>{{icon "static"}} Static site (optional)</legend>
+    <div class="muted small">Serve files directly — no upstream needed. Drop your folder in orxies's <span class="mono">www/&lt;name&gt;/</span> and set the root to <span class="mono">&lt;name&gt;</span> (or an absolute path). Overrides upstreams.</div>
     <label>Static root
       <input type="text" name="root" value="{{.Site.Root}}" placeholder="mysite">
     </label>
@@ -32,7 +55,7 @@
   </fieldset>
 
   <fieldset>
-    <legend>Routing</legend>
+    <legend>{{icon "proxy"}} Routing</legend>
     <label class="check"><input type="checkbox" name="enabled" {{if .Site.Enabled}}checked{{end}}> Enabled</label>
     <label class="check"><input type="checkbox" name="http_to_https" {{if .Site.HTTPToHTTPS}}checked{{end}}> Force HTTPS (redirect 80 → 443)</label>
     <label class="check"><input type="checkbox" name="websocket" {{if .Site.WebSocket}}checked{{end}}> WebSocket support</label>
@@ -40,13 +63,13 @@
   </fieldset>
 
   <fieldset>
-    <legend>TLS</legend>
+    <legend>{{icon "lock"}} TLS</legend>
     <label class="check"><input type="checkbox" name="tls_auto" {{if .Site.TLS.Auto}}checked{{end}}> Auto-issue Let's Encrypt cert</label>
     <div class="muted small">DNS for the domain must point at this VPS before saving.</div>
   </fieldset>
 
   <fieldset>
-    <legend>Rate limit</legend>
+    <legend>{{icon "gauge"}} Rate limit</legend>
     <label class="check"><input type="checkbox" name="rl_enabled" {{if .Site.RateLimit.Enabled}}checked{{end}}> Enable per-IP rate limiting</label>
     <div class="row">
       <label>Sustained rps <input type="number" name="rl_rps" min="0" value="{{.Site.RateLimit.RPS}}"></label>
@@ -55,14 +78,19 @@
   </fieldset>
 
   <div class="actions-row">
-    <button type="submit" class="btn primary">Save</button>
+    <button type="submit" class="btn primary">{{icon "check"}} Save</button>
     <a href="/sites" class="btn">Cancel</a>
     {{if not .New}}
-      <form method="post" action="/sites/{{.Site.Filename}}/delete" data-confirm="Delete this site config?" class="inline push-right">
-        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button type="submit" class="btn danger">Delete</button>
-      </form>
+      <button type="submit" form="delete-form" class="btn danger push-right">{{icon "trash"}} Delete</button>
     {{end}}
   </div>
 </form>
+
+{{if not .New}}
+<form id="delete-form" method="post" action="/sites/{{.Site.Filename}}/delete" data-confirm="Delete this site config?">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+</form>
+{{end}}
+
+{{if .Saved}}<div class="toast ok" data-autotoast>{{icon "check"}} Saved</div>{{end}}
 {{end}}

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"jobcloud/internal/auth"
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/auth"
+	"orxies/internal/config"
+	"orxies/internal/metrics"
 )
 
 // newTestServer builds a UI server with a single admin (password "pw",
@@ -55,7 +55,7 @@ func login(t *testing.T, h http.Handler, next string) *http.Response {
 	getRes := getRec.Result()
 	var csrfCookie *http.Cookie
 	for _, c := range getRes.Cookies() {
-		if c.Name == "jobcloud_csrf" {
+		if c.Name == "orxies_csrf" {
 			csrfCookie = c
 		}
 	}

@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/config"
+	"orxies/internal/metrics"
 )
 
 // commonExploitPattern matches request paths that are never legitimate
@@ -58,7 +58,7 @@ type Router struct {
 
 // NewRouter wires the router. `trustHeaders` controls whether
 // X-Forwarded-* from the client request are trusted (for client-IP
-// extraction). Set false unless jobcloud itself sits behind another
+// extraction). Set false unless orxies itself sits behind another
 // trusted L7 proxy. `wwwDir` is the base directory that relative
 // static-site roots resolve under.
 func NewRouter(store *config.Store, reg *metrics.Registry, trustHeaders bool, wwwDir string) *Router {

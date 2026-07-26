@@ -1,0 +1,37 @@
+{{define "services"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "server"}} Services</h1>
+  <p class="muted">Managed databases &amp; caches. Link one to a project and orxies injects the connection env automatically.</p>
+</section>
+
+<section class="card">
+  <header class="card-header">
+    <h2>Services</h2>
+    <a class="btn primary" href="/services/new">{{icon "plus"}} New service</a>
+  </header>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>Name</th><th>Engine</th><th>Mode</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {{range .Services}}
+        <tr>
+          <td><a href="/services/{{.ID}}">{{.Name}}</a></td>
+          <td><span class="badge proxy">{{.Engine}}</span></td>
+          <td class="mono small">{{.Mode}}</td>
+          <td>
+            {{if .Busy}}<span class="badge warn">working…</span>
+            {{else if eq .Status "running"}}<span class="badge ok">running</span>
+            {{else if eq .Status "external"}}<span class="badge tls">external</span>
+            {{else if eq .Status "failed"}}<span class="badge warn">failed</span>
+            {{else}}<span class="badge muted">{{if .Status}}{{.Status}}{{else}}pending{{end}}</span>{{end}}
+          </td>
+          <td class="actions"><a class="btn small" href="/services/{{.ID}}">{{icon "arrow-right"}} Open</a></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5" class="empty"><div class="empty-state">{{icon "server"}}<span>No services yet. Create a database to get started.</span></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

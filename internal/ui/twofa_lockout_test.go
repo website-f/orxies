@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"jobcloud/internal/auth"
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/auth"
+	"orxies/internal/config"
+	"orxies/internal/metrics"
 )
 
 var pendingField = regexp.MustCompile(`name="pending" value="([^"]+)"`)
@@ -45,7 +45,7 @@ func getCSRF(t *testing.T, h http.Handler) (*http.Cookie, string) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
 	var c *http.Cookie
 	for _, ck := range rec.Result().Cookies() {
-		if ck.Name == "jobcloud_csrf" {
+		if ck.Name == "orxies_csrf" {
 			c = ck
 		}
 	}
@@ -111,7 +111,7 @@ func TestLogin2FAFlow(t *testing.T) {
 	}
 	var gotSession bool
 	for _, ck := range rec.Result().Cookies() {
-		if ck.Name == "jobcloud_session" && ck.Value != "" {
+		if ck.Name == "orxies_session" && ck.Value != "" {
 			gotSession = true
 		}
 	}

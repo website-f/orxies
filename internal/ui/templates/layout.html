@@ -6,15 +6,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#07091a">
 <meta name="color-scheme" content="dark">
-<title>{{.Title}} · jobcloud</title>
+<title>{{.Title}} · orxies</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/app.js" defer></script>
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="logo">⚡</span>
-    <span class="title">jobcloud</span>
+    <span class="logo">{{icon "zap"}}</span>
+    <span class="title">orxies</span>
   </div>
   <button type="button" class="nav-toggle" data-nav-toggle aria-label="Toggle navigation" aria-expanded="false">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -24,20 +24,28 @@
     </svg>
   </button>
   <nav data-nav>
-    <a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">Dashboard</a>
-    <a href="/sites" class="{{if eq .Active "sites"}}active{{end}}">Sites</a>
-    <a href="/certs" class="{{if eq .Active "certs"}}active{{end}}">Certificates</a>
-    <a href="/logout" class="logout">Sign out</a>
+    <a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">{{icon "dashboard"}}Dashboard</a>
+    {{if .ProjectsEnabled}}<a href="/projects" class="{{if eq .Active "projects"}}active{{end}}">{{icon "static"}}Projects</a>{{end}}
+    {{if .ProjectsEnabled}}<a href="/services" class="{{if eq .Active "services"}}active{{end}}">{{icon "server"}}Services</a>{{end}}
+    <a href="/sites" class="{{if eq .Active "sites"}}active{{end}}">{{icon "globe"}}Sites</a>
+    <a href="/certs" class="{{if eq .Active "certs"}}active{{end}}">{{icon "shield"}}Certificates</a>
+    <a href="/logout" class="logout">{{icon "logout"}}Sign out</a>
   </nav>
 </header>
 <main>
 {{if eq .ContentTemplate "dashboard"}}{{template "dashboard" .}}
 {{else if eq .ContentTemplate "site-form"}}{{template "site-form" .}}
 {{else if eq .ContentTemplate "certs"}}{{template "certs" .}}
+{{else if eq .ContentTemplate "projects"}}{{template "projects" .}}
+{{else if eq .ContentTemplate "project-form"}}{{template "project-form" .}}
+{{else if eq .ContentTemplate "project-detail"}}{{template "project-detail" .}}
+{{else if eq .ContentTemplate "services"}}{{template "services" .}}
+{{else if eq .ContentTemplate "service-form"}}{{template "service-form" .}}
+{{else if eq .ContentTemplate "service-detail"}}{{template "service-detail" .}}
 {{end}}
 </main>
 <footer class="footer">
-  <span>jobcloud {{.Version}}</span>
+  <span>orxies {{.Version}}</span>
   <span class="sep">·</span>
   <span>{{.SiteCount}} site{{if ne .SiteCount 1}}s{{end}}</span>
   <span class="sep">·</span>

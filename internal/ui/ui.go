@@ -1,4 +1,4 @@
-// Package ui is the admin web interface for jobcloud.
+// Package ui is the admin web interface for orxies.
 package ui
 
 import (
@@ -13,13 +13,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"jobcloud/internal/acme"
-	"jobcloud/internal/audit"
-	"jobcloud/internal/auth"
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/acme"
+	"orxies/internal/audit"
+	"orxies/internal/auth"
+	"orxies/internal/config"
+	"orxies/internal/deploy"
+	"orxies/internal/metrics"
+	"orxies/internal/store"
 )
 
 //go:embed templates/*.html static/*
@@ -35,8 +38,10 @@ type Server struct {
 	SitesDir      string
 	Version       string
 	StartAt       time.Time
-	Audit         *audit.Logger  // admin-action log (nil-safe)
-	LoginThrottle *auth.Throttle // brute-force protection for /login
+	Audit         *audit.Logger   // admin-action log (nil-safe)
+	LoginThrottle *auth.Throttle  // brute-force protection for /login
+	DB            *store.Store    // platform state (projects/deployments); nil disables Projects
+	Deploy        *deploy.Manager // deployment orchestrator; nil disables Projects
 	// ReloadCallback is invoked after the UI mutates a site file —
 	// used to re-trigger the watcher's reload synchronously so the
 	// UI shows the change immediately. Optional.
@@ -44,6 +49,14 @@ type Server struct {
 
 	tpl    *template.Template
 	static http.Handler
+
+	// In-memory capture of the most recent deploy per project (build
+	// output streams here; the detail page polls it).
+	projMu        sync.Mutex
+	projLogs      map[int64]*logBuf
+	projDeploying map[int64]bool
+	svcLogs       map[int64]*logBuf
+	svcBusy       map[int64]bool
 }
 
 // New parses templates and returns a ready Server.
@@ -51,8 +64,18 @@ func New(s *Server) (*Server, error) {
 	if s.LoginThrottle == nil {
 		s.LoginThrottle = auth.NewThrottle()
 	}
+	s.projLogs = map[int64]*logBuf{}
+	s.projDeploying = map[int64]bool{}
+	s.svcLogs = map[int64]*logBuf{}
+	s.svcBusy = map[int64]bool{}
 	funcs := template.FuncMap{
 		"join": func(items []string, sep string) string { return strings.Join(items, sep) },
+		"icon": func(name string) template.HTML {
+			return template.HTML(`<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-` +
+				template.HTMLEscapeString(name) + `"/></svg>`)
+		},
+		"spark":      func(series []uint32) template.HTML { return renderSpark(series, 108, 26, "spark") },
+		"sparkLarge": func(series []uint32) template.HTML { return renderSpark(series, 600, 60, "spark spark-lg") },
 	}
 	tpl, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {
@@ -84,10 +107,21 @@ func (s *Server) Handler() http.Handler {
 	authed.HandleFunc("/sites/", s.handleSitesItem) // /sites/<file>, /sites/<file>/toggle, /sites/<file>/delete
 	authed.HandleFunc("/certs", s.handleCerts)
 	authed.HandleFunc("/partials/site-rows", s.handleSiteRowsPartial)
+	if s.DB != nil && s.Deploy != nil {
+		authed.HandleFunc("/projects", s.handleProjects)
+		authed.HandleFunc("/projects/new", s.handleProjectNew)
+		authed.HandleFunc("/projects/", s.handleProjectItem) // /projects/<id>[/deploy|/stop|/remove|/logs|/services|/env]
+		authed.HandleFunc("/services", s.handleServices)
+		authed.HandleFunc("/services/new", s.handleServiceNew)
+		authed.HandleFunc("/services/", s.handleServiceItem) // /services/<id>[/provision|/remove|/logs]
+	}
 
 	mux.Handle("/", s.Auth.Require(authed))
 	return mux
 }
+
+// projectsEnabled reports whether the platform (store + agent) is wired.
+func (s *Server) projectsEnabled() bool { return s.DB != nil && s.Deploy != nil }
 
 // ---- Helpers ----
 
@@ -98,6 +132,7 @@ type baseData struct {
 	SiteCount       int
 	Uptime          string
 	CSRF            string // token for forms on this page
+	ProjectsEnabled bool   // whether the Projects section is enabled
 	ContentTemplate string // name of the body template the layout should render
 }
 
@@ -108,6 +143,7 @@ func (s *Server) base(title, active, contentTpl string) baseData {
 		Version:         s.Version,
 		SiteCount:       len(s.Store.Snapshot()),
 		Uptime:          humanDuration(time.Since(s.StartAt)),
+		ProjectsEnabled: s.projectsEnabled(),
 		ContentTemplate: contentTpl,
 	}
 }
@@ -274,12 +310,17 @@ type siteRow struct {
 	Aliases     []string
 	Filename    string
 	Enabled     bool
+	Static      bool // static (Root) site vs reverse-proxy site
 	Upstreams   []string
+	Root        string
 	TLS         config.TLSConfig
 	ReqsPerMin  uint64
 	BytesPerMin uint64
 	ErrsPerMin  uint64
+	P50         uint32
 	P95         uint32
+	P99         uint32
+	Series      []uint32 // per-second req counts (oldest→newest)
 }
 
 type dashboardData struct {
@@ -296,17 +337,24 @@ func (s *Server) buildSiteRows() (rows []siteRow, totalReqs, totalErrs, totalByt
 	snaps := s.Metrics.SnapshotAll()
 	for _, site := range sites {
 		snap := snaps[site.Domain]
+		series := make([]uint32, len(snap.ReqsPerSec))
+		copy(series, snap.ReqsPerSec[:])
 		rows = append(rows, siteRow{
 			Domain:      site.Domain,
 			Aliases:     site.Aliases,
 			Filename:    site.Filename,
 			Enabled:     site.Enabled,
+			Static:      site.Root != "",
 			Upstreams:   site.Upstreams,
+			Root:        site.Root,
 			TLS:         site.TLS,
 			ReqsPerMin:  snap.ReqsLast1m,
 			BytesPerMin: snap.BytesLast1m,
 			ErrsPerMin:  snap.ErrsLast1m,
+			P50:         snap.P50,
 			P95:         snap.P95,
+			P99:         snap.P99,
+			Series:      series,
 		})
 		totalReqs += snap.ReqsLast1m
 		totalErrs += snap.ErrsLast1m
@@ -349,6 +397,106 @@ func (s *Server) handleSiteRowsPartial(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "site-rows", data)
 }
 
+// renderSpark returns an inline SVG sparkline for a per-second series.
+// Server-rendered (no client JS, CSP-clean). preserveAspectRatio=none
+// lets it stretch to whatever box the CSS gives it.
+func renderSpark(series []uint32, w, h int, class string) template.HTML {
+	esc := template.HTMLEscapeString(class)
+	if len(series) < 2 {
+		return template.HTML(`<svg class="` + esc + ` flat" viewBox="0 0 ` +
+			strconv.Itoa(w) + ` ` + strconv.Itoa(h) + `"></svg>`)
+	}
+	var max uint32
+	for _, v := range series {
+		if v > max {
+			max = v
+		}
+	}
+	if max == 0 {
+		y := h - 1
+		return template.HTML(fmt.Sprintf(
+			`<svg class="%s flat" viewBox="0 0 %d %d" preserveAspectRatio="none"><polyline points="0,%d %d,%d"/></svg>`,
+			esc, w, h, y, w, y))
+	}
+	n := len(series)
+	var line, area strings.Builder
+	fmt.Fprintf(&area, "0,%d ", h)
+	for i, v := range series {
+		x := float64(i) / float64(n-1) * float64(w)
+		y := float64(h) - (float64(v)/float64(max))*(float64(h)-3) - 1
+		fmt.Fprintf(&line, "%.1f,%.1f ", x, y)
+		fmt.Fprintf(&area, "%.1f,%.1f ", x, y)
+	}
+	fmt.Fprintf(&area, "%d,%d", w, h)
+	return template.HTML(fmt.Sprintf(
+		`<svg class="%s" viewBox="0 0 %d %d" preserveAspectRatio="none"><polygon class="area" points="%s"/><polyline points="%s"/></svg>`,
+		esc, w, h, strings.TrimSpace(area.String()), strings.TrimSpace(line.String())))
+}
+
+// siteFormData backs the add/edit site page. Stats is nil for a new site.
+type siteFormData struct {
+	baseData
+	New   bool
+	Site  *config.Site
+	Error string
+	Saved bool
+	Stats *siteStats
+}
+
+type siteStats struct {
+	TotalRequests uint64
+	TotalBytes    string
+	TotalErrors   uint64
+	ReqsPerMin    uint64
+	P50, P95, P99 uint32
+	Series        []uint32
+	Statuses      []statusRow
+}
+
+type statusRow struct {
+	Code  int
+	Count uint64
+	Class string
+}
+
+func (s *Server) siteStatsFor(domain string) *siteStats {
+	snap := s.Metrics.SnapshotAll()[domain]
+	series := make([]uint32, len(snap.ReqsPerSec))
+	copy(series, snap.ReqsPerSec[:])
+	st := &siteStats{
+		TotalRequests: snap.TotalRequests,
+		TotalBytes:    humanBytes(snap.TotalBytes),
+		TotalErrors:   snap.TotalErrors,
+		ReqsPerMin:    snap.ReqsLast1m,
+		P50:           snap.P50,
+		P95:           snap.P95,
+		P99:           snap.P99,
+		Series:        series,
+	}
+	codes := make([]int, 0, len(snap.StatusCounts))
+	for c := range snap.StatusCounts {
+		codes = append(codes, c)
+	}
+	sort.Ints(codes)
+	for _, c := range codes {
+		st.Statuses = append(st.Statuses, statusRow{Code: c, Count: snap.StatusCounts[c], Class: statusClass(c)})
+	}
+	return st
+}
+
+func statusClass(code int) string {
+	switch {
+	case code >= 500 || code == 0:
+		return "s5"
+	case code >= 400:
+		return "s4"
+	case code >= 300:
+		return "s3"
+	default:
+		return "s2"
+	}
+}
+
 func humanBytes(n uint64) string {
 	const k = 1024
 	switch {
@@ -376,14 +524,7 @@ func (s *Server) handleSitesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSiteNew(w http.ResponseWriter, r *http.Request) {
-	type data struct {
-		baseData
-		New   bool
-		Site  *config.Site
-		Error string
-		Saved bool
-	}
-	s.render(w, "layout", data{
+	s.render(w, "layout", siteFormData{
 		baseData: s.page(w, r, "Add site", "sites", "site-form"),
 		New:      true,
 		Site: &config.Site{
@@ -483,17 +624,11 @@ func (s *Server) handleSitesItem(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	type data struct {
-		baseData
-		New   bool
-		Site  *config.Site
-		Error string
-		Saved bool
-	}
-	s.render(w, "layout", data{
+	s.render(w, "layout", siteFormData{
 		baseData: s.page(w, r, site.Domain, "sites", "site-form"),
 		Site:     site,
 		Saved:    r.URL.Query().Get("saved") == "1",
+		Stats:    s.siteStatsFor(site.Domain),
 	})
 }
 
@@ -529,18 +664,11 @@ func (s *Server) createOrUpdateSite(w http.ResponseWriter, r *http.Request, exis
 	}
 
 	if _, err := config.SaveSite(s.SitesDir, &site); err != nil {
-		type data struct {
-			baseData
-			New   bool
-			Site  *config.Site
-			Error string
-			Saved bool
-		}
 		title := "Add site"
 		if existing != nil {
 			title = site.Domain
 		}
-		s.render(w, "layout", data{
+		s.render(w, "layout", siteFormData{
 			baseData: s.page(w, r, title, "sites", "site-form"),
 			New:      existing == nil,
 			Site:     &site,
