@@ -11,21 +11,26 @@
     {{else}}
       <span class="badge muted">Disabled</span>
     {{end}}
-    {{if .TLS.Auto}}<span class="badge tls">TLS</span>{{end}}
+    {{if .Static}}<span class="badge static">{{icon "static"}} Static</span>{{else}}<span class="badge proxy">{{icon "proxy"}} Proxy</span>{{end}}
+    {{if .TLS.Auto}}<span class="badge tls">{{icon "lock"}} TLS</span>{{end}}
   </td>
   <td class="mono small">
-    {{range $i, $u := .Upstreams}}{{if $i}}<br>{{end}}{{$u}}{{end}}
+    {{if .Static}}{{.Root}}/{{else}}{{range $i, $u := .Upstreams}}{{if $i}}<br>{{end}}{{$u}}{{end}}{{end}}
   </td>
+  <td class="spark-cell">{{spark .Series}}</td>
   <td class="num">{{.ReqsPerMin}}</td>
   <td class="num">{{.P95}}</td>
   <td class="num {{if gt .ErrsPerMin 0}}warn{{end}}">{{.ErrsPerMin}}</td>
   <td class="actions">
-    <form method="post" action="/sites/{{.Filename}}/toggle" hx-post="/sites/{{.Filename}}/toggle" hx-target="closest tr" hx-swap="none">
-      <button class="btn small" type="submit">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
+    <form method="post" action="/sites/{{.Filename}}/toggle">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button class="btn small" type="submit">{{if .Enabled}}{{icon "power"}} Disable{{else}}{{icon "power"}} Enable{{end}}</button>
     </form>
   </td>
 </tr>
 {{else}}
-<tr><td colspan="7" class="empty">No sites yet. Add one to get started.</td></tr>
+<tr><td colspan="8" class="empty">
+  <div class="empty-state">{{icon "inbox"}}<span>No sites yet. Add one to get started.</span></div>
+</td></tr>
 {{end}}
 {{end}}

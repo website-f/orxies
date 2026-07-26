@@ -1,0 +1,80 @@
+{{define "project-detail"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "static"}} {{.Project.Name}}</h1>
+  <p class="muted mono">{{.Project.Domain}} · {{.Project.Strategy}} · {{.Project.SourcePath}}</p>
+</section>
+
+<section class="card">
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="stat-label">status</div>
+      <div class="stat-value">{{if .Deploying}}deploying…{{else}}{{.Status}}{{end}}</div>
+    </div>
+    {{if .Deployment}}
+    <div class="stat"><div class="stat-label">host port</div><div class="stat-value">{{if .Deployment.HostPort}}{{.Deployment.HostPort}}{{else}}—{{end}}</div></div>
+    <div class="stat"><div class="stat-label">image</div><div class="stat-value mono small">{{if .Deployment.ImageRef}}{{.Deployment.ImageRef}}{{else}}—{{end}}</div></div>
+    {{end}}
+  </div>
+
+  <div class="actions-row">
+    <form method="post" action="/projects/{{.Project.ID}}/deploy" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn primary" type="submit">{{icon "arrow-right"}} Deploy</button>
+    </form>
+    <form method="post" action="/projects/{{.Project.ID}}/stop" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn" type="submit">{{icon "power"}} Stop</button>
+    </form>
+    <a class="btn" href="/projects">Back</a>
+    <form method="post" action="/projects/{{.Project.ID}}/remove" data-confirm="Remove this project, its container, and its route?" class="inline push-right">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn danger" type="submit">{{icon "trash"}} Remove</button>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <header class="card-header"><h2 class="hero-title-row">{{icon "server"}} Services &amp; environment</h2><span class="muted small">applied on next deploy</span></header>
+  <form method="post" action="/projects/{{.Project.ID}}/services" class="form">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <fieldset>
+      <legend>Linked databases &amp; caches</legend>
+      {{if .Services}}
+        {{range .Services}}
+        <label class="check"><input type="checkbox" name="service" value="{{.ID}}" {{if index $.Linked .ID}}checked{{end}}> {{.Name}} <span class="muted small">({{.Engine}})</span></label>
+        {{end}}
+      {{else}}
+        <div class="muted small">No services yet — create one under <a href="/services">Services</a>.</div>
+      {{end}}
+    </fieldset>
+    <button type="submit" class="btn">{{icon "check"}} Save links</button>
+  </form>
+  <form method="post" action="/projects/{{.Project.ID}}/env" class="form">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>Environment variables <span class="muted small">(one KEY=VALUE per line; stored encrypted, injected at deploy)</span>
+      <textarea name="env" rows="4" placeholder="NODE_ENV=production">{{.EnvText}}</textarea>
+    </label>
+    <button type="submit" class="btn">{{icon "check"}} Save env</button>
+  </form>
+</section>
+
+{{if .WebhookPath}}
+<section class="card">
+  <header class="card-header"><h2 class="hero-title-row">{{icon "proxy"}} Deploy on push</h2></header>
+  <p class="muted small">Add a webhook in your Git provider so every push redeploys automatically. Content type <span class="mono">application/json</span>.</p>
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">Payload URL (path)</div><div class="stat-value mono small">{{.WebhookPath}}</div></div>
+    <div class="stat"><div class="stat-label">Secret</div><div class="stat-value mono small">{{.Project.WebhookSecret}}</div></div>
+  </div>
+  <p class="muted small">Full URL: <span class="mono">https://{{.Project.Domain}}{{.WebhookPath}}</span> (any domain routed here works).</p>
+</section>
+{{end}}
+
+<section class="card">
+  <header class="card-header">
+    <h2 class="hero-title-row">{{icon "activity"}} Deploy log</h2>
+    <span class="muted small">auto-refreshes every 2s</span>
+  </header>
+  <pre class="logbox" id="deploy-log" data-poll-url="/projects/{{.Project.ID}}/logs" data-poll-ms="2000">(no output yet)</pre>
+</section>
+{{end}}

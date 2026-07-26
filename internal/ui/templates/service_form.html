@@ -1,0 +1,37 @@
+{{define "service-form"}}
+<section class="hero">
+  <h1>New service</h1>
+  <p class="muted">Run a managed database (orxies starts a container with a persistent volume), or register an external one you already have.</p>
+</section>
+
+{{if .Error}}<div class="alert error">{{icon "alert"}} {{.Error}}</div>{{end}}
+
+<form method="post" action="/services/new" class="card form">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <label>Name
+    <input type="text" name="name" required value="{{index .Values "name"}}" placeholder="app-db">
+  </label>
+  <div class="row">
+    <label>Engine
+      <select name="engine">
+        {{$e := index .Values "engine"}}
+        {{range .Engines}}<option value="{{.}}" {{if eq . $e}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label>Mode
+      <select name="mode">
+        {{$m := index .Values "mode"}}
+        <option value="managed" {{if eq $m "managed"}}selected{{end}}>managed (orxies runs it)</option>
+        <option value="external" {{if eq $m "external"}}selected{{end}}>external (your own)</option>
+      </select>
+    </label>
+  </div>
+  <label>External connection URL <span class="muted small">(external mode only; stored encrypted)</span>
+    <input type="text" name="url" value="{{index .Values "url"}}" placeholder="postgresql://user:pass@host:5432/db">
+  </label>
+  <div class="actions-row">
+    <button type="submit" class="btn primary">{{icon "check"}} Create</button>
+    <a href="/services" class="btn">Cancel</a>
+  </div>
+</form>
+{{end}}

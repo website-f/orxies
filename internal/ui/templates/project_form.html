@@ -1,0 +1,60 @@
+{{define "project-form"}}
+<section class="hero">
+  <h1>New project</h1>
+  <p class="muted">Point orxies at a source path on the server. It auto-detects how to build and run it; you can override below.</p>
+</section>
+
+{{if .Error}}<div class="alert error">{{icon "alert"}} {{.Error}}</div>{{end}}
+
+<form method="post" action="/projects/new" class="card form">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <div class="row">
+    <label>Name
+      <input type="text" name="name" required value="{{index .Values "name"}}" placeholder="my-app">
+    </label>
+    <label>Domain
+      <input type="text" name="domain" required value="{{index .Values "domain"}}" placeholder="app.example.com" list="domain-list">
+      <datalist id="domain-list">{{range .Domains}}<option value="{{.}}"></option>{{end}}</datalist>
+    </label>
+  </div>
+
+  <fieldset>
+    <legend>{{icon "proxy"}} Source — Git repo <span class="muted small">(recommended)</span></legend>
+    <div class="muted small">orxies clones this repo, detects the project type, builds it, and can redeploy on every push. For private repos, add a token.</div>
+    <label>Git repo URL
+      <input type="text" name="repo_url" value="{{index .Values "repo_url"}}" placeholder="https://github.com/you/app.git">
+    </label>
+    <div class="row">
+      <label>Branch <span class="muted small">(blank = default)</span>
+        <input type="text" name="branch" value="{{index .Values "branch"}}" placeholder="main">
+      </label>
+      <label>Access token <span class="muted small">(private repos only; stored encrypted)</span>
+        <input type="password" name="token" autocomplete="new-password" placeholder="ghp_…">
+      </label>
+    </div>
+  </fieldset>
+
+  <label>…or a local source path <span class="muted small">(absolute path on the server, or a folder under www/)</span>
+    <input type="text" name="source_path" value="{{index .Values "source_path"}}" placeholder="/opt/apps/my-app">
+  </label>
+
+  <div class="row">
+    <label>Strategy
+      <select name="strategy">
+        {{$sel := index .Values "strategy"}}
+        {{range .Strategies}}<option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label>App port <span class="muted small">(container port; blank = 3000)</span>
+      <input type="number" name="app_port" min="0" value="{{index .Values "app_port"}}" placeholder="3000">
+    </label>
+  </div>
+
+  <label class="check"><input type="checkbox" name="spa"> SPA fallback (static strategy only — serve index.html for unmatched paths)</label>
+
+  <div class="actions-row">
+    <button type="submit" class="btn primary">{{icon "check"}} Create</button>
+    <a href="/projects" class="btn">Cancel</a>
+  </div>
+</form>
+{{end}}

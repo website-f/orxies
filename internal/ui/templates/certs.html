@@ -1,6 +1,6 @@
 {{define "certs"}}
 <section class="hero">
-  <h1>Certificates</h1>
+  <h1 class="hero-title-row">{{icon "shield"}} Certificates</h1>
   <p class="muted">All managed Let's Encrypt certs. Auto-renewal happens silently in the background.</p>
 </section>
 
@@ -23,15 +23,17 @@
           <td>{{if .NotAfter}}{{.NotAfter}}{{else}}<span class="muted">—</span>{{end}}</td>
           <td>
             {{if .LastError}}
-              <span class="badge warn">Pending</span>
+              <span class="badge warn">{{icon "clock"}} Pending</span>
               <div class="muted small">{{.LastError}}</div>
             {{else}}
-              <span class="badge ok">Valid</span>
+              <span class="badge ok">{{icon "check"}} Valid</span>
             {{end}}
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="4" class="empty">No managed certificates.</td></tr>
+        <tr><td colspan="4" class="empty">
+          <div class="empty-state">{{icon "shield"}}<span>No managed certificates.</span></div>
+        </td></tr>
         {{end}}
       </tbody>
     </table>

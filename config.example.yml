@@ -1,13 +1,25 @@
-# jobcloud global config. Copy to config.yml and edit.
+# orxies global config. Copy to config.yml and edit.
 #
 # IMPORTANT: admins[].password_hash is bcrypt. Generate with:
-#   docker compose run --rm jobcloud hash 'your-password-here'
+#   docker compose run --rm orxies hash 'your-password-here'
 # or (if you have a local Go install):
-#   go run ./cmd/jobcloud hash 'your-password-here'
+#   go run ./cmd/orxies hash 'your-password-here'
 
 admin_addr: "127.0.0.1:8090"        # admin UI bind addr. Loopback ONLY.
 http_addr: ":80"
 https_addr: ":443"
+
+# Optional: restrict the admin UI to specific client IPs / subnets. The
+# DIRECT peer IP is matched (forwarded headers are ignored on purpose).
+# Empty = no restriction (correct for the loopback-only default, where
+# the OS already gates access). Populate this if you ever reach the admin
+# UI over a VPN — e.g. your WireGuard subnet:
+#   admin_allow_cidrs: ["10.8.0.0/24"]
+admin_allow_cidrs: []
+
+# Set true only if a TLS terminator sits in front of the admin listener.
+# Forces Secure cookies + HSTS even though orxies's admin bind is HTTP.
+admin_force_secure_cookie: false
 
 # Required for Let's Encrypt registration + renewal warnings.
 acme_email: "you@example.com"
@@ -17,9 +29,9 @@ acme_email: "you@example.com"
 #   acme_directory: "https://acme-staging-v02.api.letsencrypt.org/directory"
 acme_directory: ""
 
-# Set true ONLY if jobcloud sits behind another L7 proxy (e.g.
+# Set true ONLY if orxies sits behind another L7 proxy (e.g.
 # Cloudflare). When false (default) the direct peer IP is used —
-# correct when jobcloud IS the edge.
+# correct when orxies IS the edge.
 trust_forwarded_headers: false
 
 # Leave empty to auto-generate a 48-byte secret on first run.
@@ -28,5 +40,9 @@ session_secret: ""
 
 admins:
   - username: "admin"
-    # Replace with the output of `jobcloud hash 'your-pw'`.
-    password_hash: "$2a$10$REPLACE_ME_WITH_BCRYPT_HASH_OUTPUT_FROM_jobcloud_hash"
+    # Replace with the output of `orxies hash 'your-pw'`.
+    password_hash: "$2a$10$REPLACE_ME_WITH_BCRYPT_HASH_OUTPUT_FROM_orxies_hash"
+    # Optional two-factor auth. Generate with `orxies totp admin`, paste
+    # the secret here, and scan the printed otpauth URI into your
+    # authenticator app. Leave empty / omit to disable 2FA for this admin.
+    # totp_secret: ""

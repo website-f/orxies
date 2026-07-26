@@ -18,10 +18,10 @@ import (
 
 	"github.com/caddyserver/certmagic"
 
-	jcconfig "jobcloud/internal/config"
+	jcconfig "orxies/internal/config"
 )
 
-// Manager wraps a certmagic.Config and exposes the API jobcloud needs.
+// Manager wraps a certmagic.Config and exposes the API orxies needs.
 type Manager struct {
 	cfg    *certmagic.Config
 	issuer *certmagic.ACMEIssuer

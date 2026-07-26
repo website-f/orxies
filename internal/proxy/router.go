@@ -7,13 +7,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httputil"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"jobcloud/internal/config"
-	"jobcloud/internal/metrics"
+	"orxies/internal/config"
+	"orxies/internal/metrics"
 )
 
 // commonExploitPattern matches request paths that are never legitimate
@@ -34,18 +35,20 @@ var scannerUA = regexp.MustCompile(`(?i)(sqlmap|nikto|nmap|masscan|acunetix|ness
 // Rebuilt whenever the config reloads.
 type siteRuntime struct {
 	site    *config.Site
-	pool    *Pool
+	pool    *Pool                  // nil for static sites
 	limiter *Limiter
-	rp      *httputil.ReverseProxy
+	rp      *httputil.ReverseProxy // nil for static sites
+	static  http.Handler           // non-nil for static (Root) sites
 }
 
 // Router is the HTTP handler that fronts everything. It implements
 // http.Handler.
 type Router struct {
-	store         *config.Store
-	registry      *metrics.Registry
-	trustHeaders  bool
-	transport     http.RoundTripper
+	store        *config.Store
+	registry     *metrics.Registry
+	trustHeaders bool
+	transport    http.RoundTripper
+	wwwDir       string // base dir for relative static-site roots
 
 	mu       sync.RWMutex
 	runtimes map[string]*siteRuntime // keyed by Domain
@@ -55,16 +58,27 @@ type Router struct {
 
 // NewRouter wires the router. `trustHeaders` controls whether
 // X-Forwarded-* from the client request are trusted (for client-IP
-// extraction). Set false unless jobcloud itself sits behind another
-// trusted L7 proxy.
-func NewRouter(store *config.Store, reg *metrics.Registry, trustHeaders bool) *Router {
+// extraction). Set false unless orxies itself sits behind another
+// trusted L7 proxy. `wwwDir` is the base directory that relative
+// static-site roots resolve under.
+func NewRouter(store *config.Store, reg *metrics.Registry, trustHeaders bool, wwwDir string) *Router {
 	return &Router{
 		store:        store,
 		registry:     reg,
 		trustHeaders: trustHeaders,
 		transport:    newProxyTransport(),
+		wwwDir:       wwwDir,
 		runtimes:     map[string]*siteRuntime{},
 	}
+}
+
+// effectiveRoot resolves a site's Root to an absolute path: absolute
+// roots are used as-is, relative roots resolve under wwwDir.
+func (r *Router) effectiveRoot(root string) string {
+	if filepath.IsAbs(root) {
+		return root
+	}
+	return filepath.Join(r.wwwDir, root)
 }
 
 // newProxyTransport returns a tuned http.Transport for upstream calls.
@@ -91,18 +105,21 @@ func (r *Router) Reload(sites []*config.Site) {
 		if !s.Enabled {
 			continue
 		}
-		pool, err := NewPool(s.Upstreams)
-		if err != nil {
-			continue
-		}
-		rt := &siteRuntime{
-			site: s,
-			pool: pool,
+		rt := &siteRuntime{site: s}
+		if s.Root != "" {
+			// Static site — serve files, no upstream pool.
+			rt.static = staticHandler(r.effectiveRoot(s.Root), s.SPA)
+		} else {
+			pool, err := NewPool(s.Upstreams)
+			if err != nil {
+				continue
+			}
+			rt.pool = pool
+			rt.rp = r.buildReverseProxy(rt)
 		}
 		if s.RateLimit.Enabled {
 			rt.limiter = NewLimiter(s.RateLimit.RPS, s.RateLimit.Burst)
 		}
-		rt.rp = r.buildReverseProxy(rt)
 		next[s.Domain] = rt
 		for _, a := range s.Aliases {
 			next[a] = rt
@@ -232,7 +249,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	cw := &countingWriter{ResponseWriter: w, status: http.StatusOK}
-	rt.rp.ServeHTTP(cw, req)
+	if rt.static != nil {
+		rt.static.ServeHTTP(cw, req)
+	} else {
+		rt.rp.ServeHTTP(cw, req)
+	}
 	r.recordMetric(site.Domain, cw.status, cw.bytes, time.Since(start))
 }
 

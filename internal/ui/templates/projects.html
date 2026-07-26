@@ -1,0 +1,43 @@
+{{define "projects"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "static"}} Projects</h1>
+  <p class="muted">Deploy a project from a path — orxies detects the type, builds it, runs it, and routes your domain.</p>
+</section>
+
+<section class="card">
+  <header class="card-header">
+    <h2>Projects</h2>
+    <a class="btn primary" href="/projects/new">{{icon "plus"}} New project</a>
+  </header>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead>
+        <tr><th>Name</th><th>Domain</th><th>Type</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Projects}}
+        <tr>
+          <td>
+            <a href="/projects/{{.ID}}">{{.Name}}</a>
+            <div class="muted small mono">{{.SourcePath}}</div>
+          </td>
+          <td class="mono small">{{.Domain}}</td>
+          <td><span class="badge {{if eq .Strategy "static"}}static{{else}}proxy{{end}}">{{.Strategy}}</span></td>
+          <td>
+            {{if .Deploying}}<span class="badge warn">deploying…</span>
+            {{else if eq .Status "running"}}<span class="badge ok">running</span>
+            {{else if eq .Status "failed"}}<span class="badge warn">failed</span>
+            {{else}}<span class="badge muted">{{.Status}}</span>{{end}}
+          </td>
+          <td class="actions"><a class="btn small" href="/projects/{{.ID}}">{{icon "arrow-right"}} Open</a></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5" class="empty">
+          <div class="empty-state">{{icon "inbox"}}<span>No projects yet. Create one to deploy.</span></div>
+        </td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

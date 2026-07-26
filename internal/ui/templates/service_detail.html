@@ -1,0 +1,34 @@
+{{define "service-detail"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "server"}} {{.Service.Name}}</h1>
+  <p class="muted mono">{{.Service.Engine}} · {{.Service.Mode}}</p>
+</section>
+
+<section class="card">
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">status</div><div class="stat-value">{{if .Busy}}working…{{else}}{{.Service.Status}}{{end}}</div></div>
+    {{if eq .Service.Mode "managed"}}<div class="stat"><div class="stat-label">internal host</div><div class="stat-value mono small">{{.Host}}</div></div>{{end}}
+  </div>
+  <p class="muted small">Link this service to a project (on its page) to inject connection env — <span class="mono">DATABASE_URL</span> and friends — automatically.</p>
+  <div class="actions-row">
+    {{if eq .Service.Mode "managed"}}
+    <form method="post" action="/services/{{.Service.ID}}/provision" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn primary" type="submit">{{icon "arrow-right"}} (Re)provision</button>
+    </form>
+    {{end}}
+    <a class="btn" href="/services">Back</a>
+    <form method="post" action="/services/{{.Service.ID}}/remove" data-confirm="Remove this service? (a managed data volume is kept)" class="inline push-right">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn danger" type="submit">{{icon "trash"}} Remove</button>
+    </form>
+  </div>
+</section>
+
+{{if eq .Service.Mode "managed"}}
+<section class="card">
+  <header class="card-header"><h2 class="hero-title-row">{{icon "activity"}} Provision log</h2><span class="muted small">auto-refreshes every 2s</span></header>
+  <pre class="logbox" id="svc-log" data-poll-url="/services/{{.Service.ID}}/logs" data-poll-ms="2000">(no output yet)</pre>
+</section>
+{{end}}
+{{end}}

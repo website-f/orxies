@@ -1,4 +1,4 @@
-// jobcloud — tiny progressive-enhancement script.
+// orxies — tiny progressive-enhancement script.
 // Vanilla JS, no frameworks. Polls the dashboard partial, wires up the
 // mobile nav toggle, and handles data-confirm submits.
 
@@ -52,4 +52,12 @@
       e.preventDefault();
     }
   });
+
+  // ── auto-dismissing toast ───────────────────────────────────────
+  // Any [data-autotoast] element slides in, then fades out after 3s.
+  var toast = document.querySelector("[data-autotoast]");
+  if (toast) {
+    requestAnimationFrame(function () { toast.classList.add("show"); });
+    setTimeout(function () { toast.classList.remove("show"); }, 3000);
+  }
 })();
