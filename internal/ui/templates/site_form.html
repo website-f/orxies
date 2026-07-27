@@ -6,6 +6,8 @@
 
 {{if .Error}}<div class="alert error">{{icon "alert"}} {{.Error}}</div>{{end}}
 
+{{if .New}}<div class="alert info">{{icon "arrow-right"}} A <strong>Site</strong> routes a domain to an app you already run (any <span class="mono">host:port</span>) or to a static folder. To have orxies <em>build &amp; run</em> an app from a Git repo or folder, use <a href="/projects">Projects</a> instead — orxies creates its route for you automatically.</div>{{end}}
+
 {{if and (not .New) .Stats}}
 <section class="card">
   <header class="card-header">
@@ -42,8 +44,17 @@
   </div>
 
   <label>Upstreams <span class="muted small">(one per line, host:port — leave empty for a static site)</span>
-    <textarea name="upstreams" rows="3" placeholder="127.0.0.1:8082">{{join .Site.Upstreams "\n"}}</textarea>
+    <textarea name="upstreams" rows="3" placeholder="{{if .Suggested}}{{.Suggested}}{{else}}127.0.0.1:8082{{end}}">{{join .Site.Upstreams "\n"}}</textarea>
   </label>
+  {{if .Suggested}}<div class="muted small">Suggested free port on this server: <span class="mono">{{.Suggested}}</span></div>{{end}}
+  {{if .Ports}}
+  <details class="port-hint">
+    <summary class="muted small">Ports already in use on this server ({{len .Ports}}) — click to view</summary>
+    <div class="port-list">
+      {{range .Ports}}<span class="port-chip">{{.Port}}{{if .By}} <span class="muted">{{.By}}</span>{{end}}</span>{{end}}
+    </div>
+  </details>
+  {{end}}
 
   <fieldset>
     <legend>{{icon "static"}} Static site (optional)</legend>

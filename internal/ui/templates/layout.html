@@ -29,6 +29,7 @@
     {{if .ProjectsEnabled}}<a href="/services" class="{{if eq .Active "services"}}active{{end}}">{{icon "server"}}Services</a>{{end}}
     <a href="/sites" class="{{if eq .Active "sites"}}active{{end}}">{{icon "globe"}}Sites</a>
     <a href="/certs" class="{{if eq .Active "certs"}}active{{end}}">{{icon "shield"}}Certificates</a>
+    {{if .SysEnabled}}<a href="/system" class="{{if eq .Active "system"}}active{{end}}">{{icon "activity"}}System</a>{{end}}
     <a href="/logout" class="logout">{{icon "logout"}}Sign out</a>
   </nav>
 </header>
@@ -42,6 +43,7 @@
 {{else if eq .ContentTemplate "services"}}{{template "services" .}}
 {{else if eq .ContentTemplate "service-form"}}{{template "service-form" .}}
 {{else if eq .ContentTemplate "service-detail"}}{{template "service-detail" .}}
+{{else if eq .ContentTemplate "system"}}{{template "system" .}}
 {{end}}
 </main>
 <footer class="footer">

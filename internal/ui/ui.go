@@ -23,6 +23,7 @@ import (
 	"orxies/internal/deploy"
 	"orxies/internal/metrics"
 	"orxies/internal/store"
+	"orxies/internal/sysstat"
 )
 
 //go:embed templates/*.html static/*
@@ -42,6 +43,7 @@ type Server struct {
 	LoginThrottle *auth.Throttle  // brute-force protection for /login
 	DB            *store.Store    // platform state (projects/deployments); nil disables Projects
 	Deploy        *deploy.Manager // deployment orchestrator; nil disables Projects
+	Sys           *sysstat.Reader // host health metrics; nil disables the System page
 	// ReloadCallback is invoked after the UI mutates a site file —
 	// used to re-trigger the watcher's reload synchronously so the
 	// UI shows the change immediately. Optional.
@@ -107,6 +109,10 @@ func (s *Server) Handler() http.Handler {
 	authed.HandleFunc("/sites/", s.handleSitesItem) // /sites/<file>, /sites/<file>/toggle, /sites/<file>/delete
 	authed.HandleFunc("/certs", s.handleCerts)
 	authed.HandleFunc("/partials/site-rows", s.handleSiteRowsPartial)
+	if s.Sys != nil {
+		authed.HandleFunc("/system", s.handleSystem)
+		authed.HandleFunc("/partials/system", s.handleSystemPartial)
+	}
 	if s.DB != nil && s.Deploy != nil {
 		authed.HandleFunc("/projects", s.handleProjects)
 		authed.HandleFunc("/projects/new", s.handleProjectNew)
@@ -132,7 +138,8 @@ type baseData struct {
 	SiteCount       int
 	Uptime          string
 	CSRF            string // token for forms on this page
-	ProjectsEnabled bool   // whether the Projects section is enabled
+	ProjectsEnabled bool   // whether the Projects/Services sections are enabled
+	SysEnabled      bool   // whether the System page is enabled
 	ContentTemplate string // name of the body template the layout should render
 }
 
@@ -144,6 +151,7 @@ func (s *Server) base(title, active, contentTpl string) baseData {
 		SiteCount:       len(s.Store.Snapshot()),
 		Uptime:          humanDuration(time.Since(s.StartAt)),
 		ProjectsEnabled: s.projectsEnabled(),
+		SysEnabled:      s.Sys != nil,
 		ContentTemplate: contentTpl,
 	}
 }
@@ -436,11 +444,13 @@ func renderSpark(series []uint32, w, h int, class string) template.HTML {
 // siteFormData backs the add/edit site page. Stats is nil for a new site.
 type siteFormData struct {
 	baseData
-	New   bool
-	Site  *config.Site
-	Error string
-	Saved bool
-	Stats *siteStats
+	New       bool
+	Site      *config.Site
+	Error     string
+	Saved     bool
+	Stats     *siteStats
+	Ports     []portUse // ports already in use (hint)
+	Suggested string    // a suggested free upstream (e.g. 127.0.0.1:8001)
 }
 
 type siteStats struct {
@@ -524,9 +534,12 @@ func (s *Server) handleSitesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSiteNew(w http.ResponseWriter, r *http.Request) {
+	ports, suggested := s.portInfo()
 	s.render(w, "layout", siteFormData{
-		baseData: s.page(w, r, "Add site", "sites", "site-form"),
-		New:      true,
+		baseData:  s.page(w, r, "Add site", "sites", "site-form"),
+		New:       true,
+		Ports:     ports,
+		Suggested: suggested,
 		Site: &config.Site{
 			Enabled:             true,
 			HTTPToHTTPS:         true,
@@ -624,11 +637,14 @@ func (s *Server) handleSitesItem(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	ports, suggested := s.portInfo()
 	s.render(w, "layout", siteFormData{
-		baseData: s.page(w, r, site.Domain, "sites", "site-form"),
-		Site:     site,
-		Saved:    r.URL.Query().Get("saved") == "1",
-		Stats:    s.siteStatsFor(site.Domain),
+		baseData:  s.page(w, r, site.Domain, "sites", "site-form"),
+		Site:      site,
+		Saved:     r.URL.Query().Get("saved") == "1",
+		Stats:     s.siteStatsFor(site.Domain),
+		Ports:     ports,
+		Suggested: suggested,
 	})
 }
 

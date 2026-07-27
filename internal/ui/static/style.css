@@ -725,6 +725,41 @@ td.spark-cell { width: 120px; }
   word-break: break-word;
 }
 
+/* ── meters (System page) ─────────────────────────────────────── */
+progress.meter {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border: none;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-top: 4px;
+}
+progress.meter::-webkit-progress-bar { background: var(--surface-3); border-radius: 999px; }
+progress.meter::-webkit-progress-value { background: linear-gradient(90deg, var(--primary), #8aa5ff); border-radius: 999px; }
+progress.meter::-moz-progress-bar { background: var(--primary); border-radius: 999px; }
+progress.meter.hot::-webkit-progress-value { background: linear-gradient(90deg, var(--warn), var(--danger)); }
+progress.meter.hot::-moz-progress-bar { background: var(--danger); }
+
+/* ── port hint (site form) ────────────────────────────────────── */
+.port-hint { margin: 6px 0 14px; }
+.port-hint summary { cursor: pointer; }
+.port-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.port-chip {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+/* ── info alert ───────────────────────────────────────────────── */
+.alert.info { background: var(--primary-soft); color: var(--text-2); border-color: rgba(108, 142, 255, 0.30); }
+.alert.info a { color: var(--primary); }
+
 /* ── utilities ────────────────────────────────────────────────── */
 .inline { display: inline; }
 .push-right { margin-left: auto; }

@@ -1,0 +1,52 @@
+{{define "system"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "activity"}} System</h1>
+  <p class="muted">Live host health — CPU, memory, swap, disk, load. Refreshes every 3s.</p>
+</section>
+<div id="sysmeters" data-poll-url="/partials/system" data-poll-ms="3000">{{template "system-meters" .Sys}}</div>
+{{end}}
+
+{{define "system-meters"}}
+{{if not .Available}}
+<section class="card">
+  <div class="empty-state">{{icon "alert"}}<span>Host metrics are only available on Linux (they read <span class="mono">/proc</span>). This host reports {{.CPUCount}} CPU(s); other metrics unavailable here.</span></div>
+</section>
+{{else}}
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">CPU</span><span class="kpi-icon {{if gt .CPUPercent 85}}warn{{end}}">{{icon "activity"}}</span></div>
+    <span class="kpi-value">{{.CPUPercent}}%</span>
+    <progress class="meter {{if gt .CPUPercent 85}}hot{{end}}" value="{{.CPUPercent}}" max="100"></progress>
+    <span class="muted small">{{.CPUCount}} core{{if ne .CPUCount 1}}s{{end}}</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Memory</span><span class="kpi-icon {{if gt .MemPercent 85}}warn{{end}}">{{icon "server"}}</span></div>
+    <span class="kpi-value">{{.MemPercent}}%</span>
+    <progress class="meter {{if gt .MemPercent 85}}hot{{end}}" value="{{.MemPercent}}" max="100"></progress>
+    <span class="muted small">{{.MemUsed}} / {{.MemTotal}}</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Swap</span><span class="kpi-icon {{if gt .SwapPercent 50}}warn{{end}}">{{icon "server"}}</span></div>
+    {{if .HasSwap}}
+    <span class="kpi-value">{{.SwapPercent}}%</span>
+    <progress class="meter {{if gt .SwapPercent 50}}hot{{end}}" value="{{.SwapPercent}}" max="100"></progress>
+    <span class="muted small">{{.SwapUsed}} / {{.SwapTotal}}</span>
+    {{else}}<span class="kpi-value">—</span><span class="muted small">no swap</span>{{end}}
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Disk</span><span class="kpi-icon {{if gt .DiskPercent 85}}warn{{end}}">{{icon "static"}}</span></div>
+    <span class="kpi-value">{{.DiskPercent}}%</span>
+    <progress class="meter {{if gt .DiskPercent 85}}hot{{end}}" value="{{.DiskPercent}}" max="100"></progress>
+    <span class="muted small">{{.DiskUsed}} / {{.DiskTotal}}</span>
+  </div>
+</div>
+<section class="card">
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">load 1m</div><div class="stat-value">{{.Load1}}</div></div>
+    <div class="stat"><div class="stat-label">load 5m</div><div class="stat-value">{{.Load5}}</div></div>
+    <div class="stat"><div class="stat-label">load 15m</div><div class="stat-value">{{.Load15}}</div></div>
+    <div class="stat"><div class="stat-label">uptime</div><div class="stat-value">{{.Uptime}}</div></div>
+  </div>
+</section>
+{{end}}
+{{end}}

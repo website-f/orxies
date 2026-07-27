@@ -16,6 +16,7 @@
     {{end}}
   </div>
 
+  {{if .Project.Domain}}<p class="muted small">{{icon "arrow-right"}} orxies routes <span class="mono">{{.Project.Domain}}</span> to this app automatically{{if and .Deployment .Deployment.HostPort}} (→ <span class="mono">127.0.0.1:{{.Deployment.HostPort}}</span>){{end}} — no manual Site needed. TLS is issued on first HTTPS request once DNS points here.</p>{{end}}
   <div class="actions-row">
     <form method="post" action="/projects/{{.Project.ID}}/deploy" class="inline">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">

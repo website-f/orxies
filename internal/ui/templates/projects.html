@@ -33,7 +33,10 @@
         </tr>
         {{else}}
         <tr><td colspan="5" class="empty">
-          <div class="empty-state">{{icon "inbox"}}<span>No projects yet. Create one to deploy.</span></div>
+          <div class="empty-state">{{icon "inbox"}}
+            <span><strong>No projects yet.</strong> Projects are apps orxies <em>builds &amp; runs</em> for you from a Git repo or folder — the domain route is created automatically when you deploy.</span>
+            <span class="muted small">Looking for the routes you set up before? Those are reverse-proxy <a href="/sites">Sites</a>, not Projects — they're still there and serving.</span>
+          </div>
         </td></tr>
         {{end}}
       </tbody>

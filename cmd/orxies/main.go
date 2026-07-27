@@ -31,6 +31,7 @@ import (
 	"orxies/internal/security"
 	"orxies/internal/server"
 	pstore "orxies/internal/store"
+	"orxies/internal/sysstat"
 	"orxies/internal/ui"
 	"orxies/internal/webhook"
 )
@@ -334,6 +335,7 @@ func cmdServe(args []string) {
 		LoginThrottle: loginThrottle,
 		DB:            db,
 		Deploy:        deployMgr,
+		Sys:           sysstat.New(*dataDir),
 	})
 	if err != nil {
 		fatal("ui: %v", err)

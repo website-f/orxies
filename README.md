@@ -67,6 +67,8 @@ orxies collapses all of that into one hardened GUI: **domains** (add, point, TLS
 - **Static hosting built in** — serve raw HTML, a portfolio, or a Next.js/Vite static export straight from a folder, with optional SPA fallback. No sidecar server.
 - **Auto Let's Encrypt** via [`certmagic`](https://github.com/caddyserver/certmagic) — same library Caddy uses in production. Auto-renewal, OCSP stapling, ACME http-01.
 - **Live traffic dashboard** — per-site requests/min, bytes out, p50/p95/p99 latency, error rate. Polls every 3s.
+- **Host health monitor** — a **System** page with live CPU / memory / swap / disk / load meters (reads `/proc`, so real numbers on the Linux host).
+- **Guided setup** — the site form suggests a free loopback port and lists which ports are already taken (from configured sites, running projects, and actual host listeners), so you don't have to guess.
 - **Per-site rate limiting** — token bucket, per source IP. Configurable rps + burst.
 - **Common-exploit pre-filter** — drops `/wp-admin`, `/.env`, scanner UAs, etc. before they reach your upstream.
 - **WebSocket** + HTTP/2 upgrade passthrough.
