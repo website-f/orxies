@@ -482,6 +482,16 @@ docker compose restart orxies
 tail -f data/audit.log        # one JSON object per admin action
 ```
 
+**Upgrade preflight — validate your sites before swapping versions:**
+```bash
+# runs the exact load-time validation the server uses; reports which
+# sites/*.yml (if any) the new version would reject (and skip routing).
+docker compose run --rm orxies check-sites
+# or against a copy of your configs, without touching prod:
+orxies check-sites --sites ./sites
+```
+Exits non-zero if any site is rejected. A rejected file is skipped (not routed); the rest still load. Common causes after an upgrade: a single-label domain (`localhost`), an underscore in a domain, or a site with neither an upstream nor a static `root`.
+
 **Move to a new VPS:**
 
 The migration is just "stop on old, archive, restore on new, repoint DNS." Detail below:

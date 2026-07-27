@@ -52,6 +52,8 @@ func main() {
 		cmdTOTP(os.Args[2:])
 	case "agent":
 		cmdAgent(os.Args[2:])
+	case "check-sites":
+		cmdCheckSites(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("orxies", Version)
 	default:
@@ -63,11 +65,12 @@ func main() {
 const usage = `orxies — reverse proxy + admin UI for multi-project hosting
 
 Commands:
-  serve       Run the proxy + admin UI + deploy control plane
-  agent       Run the privileged orchestration agent (Docker access)
-  hash PW     Print a bcrypt hash for the given password (for config.yml)
-  totp [USER] Generate a TOTP 2FA secret + otpauth URI (for config.yml)
-  version     Print the build version
+  serve        Run the proxy + admin UI + deploy control plane
+  agent        Run the privileged orchestration agent (Docker access)
+  hash PW      Print a bcrypt hash for the given password (for config.yml)
+  totp [USER]  Generate a TOTP 2FA secret + otpauth URI (for config.yml)
+  check-sites  Validate sites/*.yml against current rules (upgrade preflight)
+  version      Print the build version
 
 Flags for 'serve':
   --data DIR          Data directory (default /etc/orxies)
@@ -113,6 +116,44 @@ func cmdTOTP(args []string) {
 	fmt.Println("  " + auth.TOTPURI("orxies", account, secret))
 	fmt.Println()
 	fmt.Println("After restarting orxies, that admin will be prompted for a code at login.")
+}
+
+// cmdCheckSites validates the site config files against the SAME rules
+// the server uses at load time — a safe preflight before upgrading, so
+// you can see which (if any) existing sites the new version would reject
+// (and therefore not route). Exits non-zero if any site is rejected.
+func cmdCheckSites(args []string) {
+	fs := flag.NewFlagSet("check-sites", flag.ExitOnError)
+	dataDir := fs.String("data", "/etc/orxies", "data directory")
+	sitesDir := fs.String("sites", "", "sites directory (default <data>/sites)")
+	_ = fs.Parse(args)
+	if *sitesDir == "" {
+		*sitesDir = filepath.Join(*dataDir, "sites")
+	}
+
+	sites, errs := config.LoadSites(*sitesDir)
+	fmt.Printf("Checking %s\n\n", *sitesDir)
+	for _, s := range sites {
+		state := "enabled"
+		if !s.Enabled {
+			state = "disabled"
+		}
+		fmt.Printf("  OK    %-40s (%s, %s)\n", s.Domain, s.Filename, state)
+	}
+	for _, e := range errs {
+		fmt.Printf("  FAIL  %v\n", e)
+	}
+
+	total := len(sites) + len(errs)
+	fmt.Printf("\n%d site file(s): %d OK, %d rejected\n", total, len(sites), len(errs))
+	if len(errs) > 0 {
+		fmt.Println()
+		fmt.Println("Rejected files will NOT be routed by the new version — the rest still load.")
+		fmt.Println("Fix the domain/alias (must be a valid hostname) or upstream/root fields above,")
+		fmt.Println("then re-run this check until it's clean before upgrading prod.")
+		os.Exit(1)
+	}
+	fmt.Println("All good — every site would load on the new version.")
 }
 
 // cmdAgent runs the privileged orchestration agent. It holds the Docker
