@@ -492,6 +492,26 @@ orxies check-sites --sites ./sites
 ```
 Exits non-zero if any site is rejected. A rejected file is skipped (not routed); the rest still load. Common causes after an upgrade: a single-label domain (`localhost`), an underscore in a domain, or a site with neither an upstream nor a static `root`.
 
+**Upgrading in place (from the older `jobcloud`-named version):**
+
+Your existing routing (`sites/*.yml`) and TLS certs (`certs/`) are bind-mounted and forward-compatible, so **existing sites keep serving** across the upgrade. Two things to get right:
+
+1. **Preflight** with `check-sites` above; fix anything it flags.
+2. **Stop the old stack _before_ you pull.** The Compose project name changed (`jobcloud` → `orxies`), so once you pull, `docker compose down` targets the new (not-yet-running) `orxies` project and can no longer stop the old `jobcloud` containers — which would keep holding ports 80/443.
+
+```bash
+cd /opt/<your-deploy-dir>
+sudo tar czf ~/orxies-backup-$(date +%F).tgz config.yml sites certs data   # insurance
+docker compose down          # MUST run while the checked-out compose is still the old (jobcloud) one
+git pull                     # now on the new orxies version
+# optional: comment out the orxies-agent service if you're not using Projects/Services yet
+docker compose build
+docker compose up -d
+docker compose logs -f       # expect listeners up + "site config reloaded", no "site load error"
+```
+
+Admins are logged out once (the session cookie was renamed); just sign in again. Expect a few seconds of downtime during the `down` → `up` swap. If you already pulled before stopping, remove the old containers by name instead: `docker rm -f $(docker ps -q --filter name=jobcloud)`.
+
 **Move to a new VPS:**
 
 The migration is just "stop on old, archive, restore on new, repoint DNS." Detail below:
