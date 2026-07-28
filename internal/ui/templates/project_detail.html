@@ -71,11 +71,42 @@
 </section>
 {{end}}
 
+{{if .Deployments}}
+<section class="card">
+  <header class="card-header"><h2 class="hero-title-row">{{icon "history"}} Deployments</h2><span class="muted small">most recent first</span></header>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>#</th><th>Status</th><th>Commit</th><th>When</th><th></th></tr></thead>
+      <tbody>
+        {{range .Deployments}}
+        <tr>
+          <td class="mono">{{.ID}}{{if eq .ID $.CurrentID}} <span class="badge ok">live</span>{{end}}</td>
+          <td>{{if eq .Status "running"}}<span class="badge ok">running</span>{{else if eq .Status "failed"}}<span class="badge warn">failed</span>{{else}}<span class="badge muted">{{.Status}}</span>{{end}}</td>
+          <td class="mono small">{{if .CommitSHA}}{{slice .CommitSHA 0 8}}{{else}}—{{end}}</td>
+          <td class="muted small">{{.CreatedAt.Format "Jan 02 15:04"}}</td>
+          <td class="actions">
+            {{if and (ne .ID $.CurrentID) .ImageRef}}
+            <form method="post" action="/projects/{{$.Project.ID}}/rollback" class="inline" data-confirm="Roll back to deployment #{{.ID}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="deployment" value="{{.ID}}">
+              <button class="btn small" type="submit">{{icon "rotate"}} Rollback</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
 <section class="card">
   <header class="card-header">
     <h2 class="hero-title-row">{{icon "activity"}} Deploy log</h2>
     <span class="muted small">auto-refreshes every 2s</span>
   </header>
+  {{if .Deploying}}<div class="progress active" data-progress><span class="progress-bar"></span></div>{{end}}
   <pre class="logbox" id="deploy-log" data-poll-url="/projects/{{.Project.ID}}/logs" data-poll-ms="2000">(no output yet)</pre>
 </section>
 {{end}}

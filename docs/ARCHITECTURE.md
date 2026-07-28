@@ -323,7 +323,7 @@ Each phase is independently shippable and leaves the tool fully working.
 | **3** | Runtime foundation | SQLite store · Project model · **orxies-agent** (Docker over a unix socket) · deploy-from-path · Dockerfile builds · zero-downtime redeploy · lifecycle (deploy/stop/remove/logs) · Projects GUI | ✅ done |
 | **4** | Git + build | Git repo source (clone/pull via go-git) · encrypted access tokens (private repos) · richer auto-detect · **deploy-on-push webhooks** (HMAC) · Projects GUI git fields | ✅ done¹ |
 | **5** | Managed services | Postgres/MySQL/Redis add-ons on a shared network · encrypted creds · **env injection** (`DATABASE_URL` + custom vars) · external-DB option · Services GUI | ✅ done² |
-| **6** | Framework polish | WordPress recipe · SPA/Next static-export detection · rollback history · service backups · preview envs per branch | 🚧 next |
+| **6** | Framework polish | **rollback history ✅** · **bento UI revamp ✅** (expandable site rows, loading/progress states, responsive) · WordPress recipe · static-export detection · service backups · preview envs | 🚧 in progress |
 | **7** | Scale & DevOps | Replicas/load-balancing · alerts · multi-node · RBAC/teams · image scanning | 🚧 |
 
 **Phase 3 is the pivot** — once the agent can build-and-run one project from a local path and orxies routes to it, everything after is additive.

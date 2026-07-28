@@ -69,6 +69,9 @@ orxies collapses all of that into one hardened GUI: **domains** (add, point, TLS
 - **Live traffic dashboard** — per-site requests/min, bytes out, p50/p95/p99 latency, error rate. Polls every 3s.
 - **Host health monitor** — a **System** page with live CPU / memory / swap / disk / load meters (reads `/proc`, so real numbers on the Linux host).
 - **Guided setup** — the site form suggests a free loopback port and lists which ports are already taken (from configured sites, running projects, and actual host listeners), so you don't have to guess.
+- **Expandable site rows** — click any domain to expand it inline and see exactly what's serving it (upstream/static folder, owning project, aliases, TLS, options, live latency).
+- **One-click rollback** — every project keeps its recent deployments; roll back to a previous build instantly (re-runs the old image, no rebuild), zero-downtime.
+- **Bento dashboard** — a modern, responsive, mobile-friendly UI with loading states, live progress bars on deploys, and self-hosted vector icons (no CDN).
 - **Per-site rate limiting** — token bucket, per source IP. Configurable rps + burst.
 - **Common-exploit pre-filter** — drops `/wp-admin`, `/.env`, scanner UAs, etc. before they reach your upstream.
 - **WebSocket** + HTTP/2 upgrade passthrough.
@@ -663,7 +666,7 @@ orxies is built in the open, one shippable phase at a time. Every phase leaves t
 | 3 | **Runtime foundation** — SQLite store, Project model, Docker orchestration agent, deploy-from-path, Dockerfile builds, zero-downtime redeploy, Projects GUI | ✅ done |
 | 4 | **Git + build** — Git repo source (clone/pull), encrypted tokens for private repos, richer auto-detect, deploy-on-push webhooks | ✅ done |
 | 5 | **Managed services** — Postgres/MySQL/Redis add-ons, encrypted creds, env injection, external DBs, Services GUI | ✅ done |
-| 6 | Framework polish — WordPress, static-export detection, rollbacks, service backups, preview envs | 🚧 next |
+| 6 | Framework polish — **rollback ✅**, bento UI revamp ✅; WordPress recipe, static-export detection, service backups, preview envs | 🚧 in progress |
 | 7 | Scale & DevOps — replicas/load-balancing, alerts, multi-node, RBAC/teams | 🚧 |
 
 Full detail, architecture diagrams, and the design rationale: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

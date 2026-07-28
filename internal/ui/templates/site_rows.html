@@ -1,21 +1,35 @@
 {{define "site-rows"}}
-{{range .Sites}}
-<tr>
-  <td>
-    <a href="/sites/{{.Filename}}">{{.Domain}}</a>
-    {{if .Aliases}}<div class="muted small">+ {{len .Aliases}} alias{{if ne (len .Aliases) 1}}es{{end}}</div>{{end}}
+{{range .Groups}}
+{{if .Multi}}
+{{$parent := .Parent}}
+<tr class="group-head" data-group="{{.Parent}}">
+  <td class="domain-cell">
+    <button type="button" class="group-toggle" data-group="{{.Parent}}" aria-expanded="false" aria-label="Expand subdomains">{{icon "chevron"}}</button>
+    <span class="group-name">{{icon "layers"}} {{.Parent}}</span>
+    <span class="group-count">· {{.TotalCount}} sites</span>
   </td>
   <td>
-    {{if .Enabled}}
-      <span class="badge ok">Active</span>
-    {{else}}
-      <span class="badge muted">Disabled</span>
-    {{end}}
+    {{if gt .ActiveCount 0}}<span class="badge ok">{{.ActiveCount}}/{{.TotalCount}} active</span>{{else}}<span class="badge muted">disabled</span>{{end}}
+    {{if .AnyTLS}}<span class="badge tls">{{icon "lock"}} TLS</span>{{end}}
+  </td>
+  <td class="muted small">{{.TotalCount}} subdomains — click to expand</td>
+  <td class="spark-cell"></td>
+  <td class="num">{{.ReqsPerMin}}</td>
+  <td class="num">—</td>
+  <td class="num {{if gt .ErrsPerMin 0}}warn{{end}}">{{.ErrsPerMin}}</td>
+  <td class="actions"></td>
+</tr>
+{{range .Sites}}
+<tr class="group-child site-main" data-group="{{$parent}}">
+  <td class="domain-cell"><span class="child-dot">&#8627;</span><a href="/sites/{{.Filename}}">{{.Domain}}</a></td>
+  <td>
+    {{if .Enabled}}<span class="badge ok">Active</span>{{else}}<span class="badge muted">Disabled</span>{{end}}
     {{if .Static}}<span class="badge static">{{icon "static"}} Static</span>{{else}}<span class="badge proxy">{{icon "proxy"}} Proxy</span>{{end}}
     {{if .TLS.Auto}}<span class="badge tls">{{icon "lock"}} TLS</span>{{end}}
   </td>
   <td class="mono small">
     {{if .Static}}{{.Root}}/{{else}}{{range $i, $u := .Upstreams}}{{if $i}}<br>{{end}}{{$u}}{{end}}{{end}}
+    {{if .ProjectName}}<div class="muted small">{{icon "static"}} project: {{.ProjectName}}</div>{{end}}
   </td>
   <td class="spark-cell">{{spark .Series}}</td>
   <td class="num">{{.ReqsPerMin}}</td>
@@ -24,13 +38,61 @@
   <td class="actions">
     <form method="post" action="/sites/{{.Filename}}/toggle">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-      <button class="btn small" type="submit">{{if .Enabled}}{{icon "power"}} Disable{{else}}{{icon "power"}} Enable{{end}}</button>
+      <button class="btn small" type="submit">{{icon "power"}} {{if .Enabled}}Disable{{else}}Enable{{end}}</button>
     </form>
   </td>
 </tr>
+{{end}}
+{{else}}
+{{range .Sites}}
+<tr class="site-main">
+  <td class="domain-cell">
+    <button type="button" class="row-toggle" data-expand="{{.Filename}}" aria-expanded="false" aria-label="Expand details">{{icon "chevron"}}</button>
+    <a href="/sites/{{.Filename}}">{{.Domain}}</a>
+    {{if .Aliases}}<div class="muted small">+ {{len .Aliases}} alias{{if ne (len .Aliases) 1}}es{{end}}</div>{{end}}
+  </td>
+  <td>
+    {{if .Enabled}}<span class="badge ok">Active</span>{{else}}<span class="badge muted">Disabled</span>{{end}}
+    {{if .Static}}<span class="badge static">{{icon "static"}} Static</span>{{else}}<span class="badge proxy">{{icon "proxy"}} Proxy</span>{{end}}
+    {{if .TLS.Auto}}<span class="badge tls">{{icon "lock"}} TLS</span>{{end}}
+  </td>
+  <td class="mono small">
+    {{if .Static}}{{.Root}}/{{else}}{{range $i, $u := .Upstreams}}{{if $i}}<br>{{end}}{{$u}}{{end}}{{end}}
+    {{if .ProjectName}}<div class="muted small">{{icon "static"}} project: {{.ProjectName}}</div>{{end}}
+  </td>
+  <td class="spark-cell">{{spark .Series}}</td>
+  <td class="num">{{.ReqsPerMin}}</td>
+  <td class="num">{{.P95}}</td>
+  <td class="num {{if gt .ErrsPerMin 0}}warn{{end}}">{{.ErrsPerMin}}</td>
+  <td class="actions">
+    <form method="post" action="/sites/{{.Filename}}/toggle">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button class="btn small" type="submit">{{icon "power"}} {{if .Enabled}}Disable{{else}}Enable{{end}}</button>
+    </form>
+  </td>
+</tr>
+<tr class="site-detail" data-for="{{.Filename}}">
+  <td colspan="8">
+    <div class="detail-panel">
+      <div class="detail-grid">
+        <div class="dt"><span class="dt-label">Type</span><span>{{if .Static}}Static files{{else}}Reverse proxy{{end}}</span></div>
+        <div class="dt"><span class="dt-label">{{if .Static}}Serving folder{{else}}Routes to{{end}}</span><span class="mono small">{{if .Static}}{{.Root}}/{{else}}{{range $i, $u := .Upstreams}}{{if $i}}, {{end}}{{$u}}{{end}}{{end}}</span></div>
+        {{if .ProjectName}}<div class="dt"><span class="dt-label">What's using it</span><span>Project <a href="/projects">{{.ProjectName}}</a> (auto-managed)</span></div>{{end}}
+        {{if .Aliases}}<div class="dt"><span class="dt-label">Aliases</span><span class="mono small">{{join .Aliases ", "}}</span></div>{{end}}
+        <div class="dt"><span class="dt-label">TLS</span><span>{{if .TLS.Auto}}Auto (Let's Encrypt){{else if .TLS.CertFile}}Manual cert{{else}}Off{{end}}</span></div>
+        <div class="dt"><span class="dt-label">Options</span><span>{{if .HTTPToHTTPS}}Force-HTTPS · {{end}}{{if .WebSocket}}WebSocket · {{end}}{{if .BlockExploit}}Exploit-block · {{end}}{{if .RateLimited}}Rate-limited{{end}}{{if not (or .HTTPToHTTPS .WebSocket .BlockExploit .RateLimited)}}—{{end}}</span></div>
+        <div class="dt"><span class="dt-label">Latency</span><span class="mono small">p50 {{.P50}} · p95 {{.P95}} · p99 {{.P99}} ms</span></div>
+        <div class="dt"><span class="dt-label">Throughput</span><span class="mono small">{{.ReqsPerMin}} req/min · {{.BytesPerMinH}}/min</span></div>
+      </div>
+      <div class="detail-actions"><a class="btn small" href="/sites/{{.Filename}}">{{icon "arrow-right"}} Edit site &amp; domain</a></div>
+    </div>
+  </td>
+</tr>
+{{end}}
+{{end}}
 {{else}}
 <tr><td colspan="8" class="empty">
-  <div class="empty-state">{{icon "inbox"}}<span>No sites yet. Add one to get started.</span></div>
+  <div class="empty-state">{{icon "inbox"}}<span>No sites yet. Add one, or deploy a <a href="/projects">Project</a> (its route appears here automatically).</span></div>
 </td></tr>
 {{end}}
 {{end}}

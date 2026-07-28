@@ -28,6 +28,7 @@
 {{if eq .Service.Mode "managed"}}
 <section class="card">
   <header class="card-header"><h2 class="hero-title-row">{{icon "activity"}} Provision log</h2><span class="muted small">auto-refreshes every 2s</span></header>
+  {{if .Busy}}<div class="progress active" data-progress><span class="progress-bar"></span></div>{{end}}
   <pre class="logbox" id="svc-log" data-poll-url="/services/{{.Service.ID}}/logs" data-poll-ms="2000">(no output yet)</pre>
 </section>
 {{end}}

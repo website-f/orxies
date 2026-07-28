@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
+
 	"orxies/internal/acme"
 	"orxies/internal/audit"
 	"orxies/internal/auth"
@@ -314,21 +316,27 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // ---- Dashboard ----
 
 type siteRow struct {
-	Domain      string
-	Aliases     []string
-	Filename    string
-	Enabled     bool
-	Static      bool // static (Root) site vs reverse-proxy site
-	Upstreams   []string
-	Root        string
-	TLS         config.TLSConfig
-	ReqsPerMin  uint64
-	BytesPerMin uint64
-	ErrsPerMin  uint64
-	P50         uint32
-	P95         uint32
-	P99         uint32
-	Series      []uint32 // per-second req counts (oldest→newest)
+	Domain       string
+	Aliases      []string
+	Filename     string
+	Enabled      bool
+	Static       bool // static (Root) site vs reverse-proxy site
+	Upstreams    []string
+	Root         string
+	TLS          config.TLSConfig
+	HTTPToHTTPS  bool
+	WebSocket    bool
+	BlockExploit bool
+	RateLimited  bool
+	ProjectName  string // owning project, if this domain was created by one
+	ReqsPerMin   uint64
+	BytesPerMin  uint64
+	BytesPerMinH string // human-readable
+	ErrsPerMin   uint64
+	P50          uint32
+	P95          uint32
+	P99          uint32
+	Series       []uint32 // per-second req counts (oldest→newest)
 }
 
 type dashboardData struct {
@@ -337,32 +345,39 @@ type dashboardData struct {
 	ReqsPerMin  uint64
 	BytesPerMin string
 	ErrorRate   float64
-	Sites       []siteRow
+	Groups      []siteGroup
 }
 
 func (s *Server) buildSiteRows() (rows []siteRow, totalReqs, totalErrs, totalBytes uint64, active int) {
 	sites := s.Store.Snapshot()
 	snaps := s.Metrics.SnapshotAll()
+	owner := s.domainOwners() // domain -> project name
 	for _, site := range sites {
 		snap := snaps[site.Domain]
 		series := make([]uint32, len(snap.ReqsPerSec))
 		copy(series, snap.ReqsPerSec[:])
 		rows = append(rows, siteRow{
-			Domain:      site.Domain,
-			Aliases:     site.Aliases,
-			Filename:    site.Filename,
-			Enabled:     site.Enabled,
-			Static:      site.Root != "",
-			Upstreams:   site.Upstreams,
-			Root:        site.Root,
-			TLS:         site.TLS,
-			ReqsPerMin:  snap.ReqsLast1m,
-			BytesPerMin: snap.BytesLast1m,
-			ErrsPerMin:  snap.ErrsLast1m,
-			P50:         snap.P50,
-			P95:         snap.P95,
-			P99:         snap.P99,
-			Series:      series,
+			Domain:       site.Domain,
+			Aliases:      site.Aliases,
+			Filename:     site.Filename,
+			Enabled:      site.Enabled,
+			Static:       site.Root != "",
+			Upstreams:    site.Upstreams,
+			Root:         site.Root,
+			TLS:          site.TLS,
+			HTTPToHTTPS:  site.HTTPToHTTPS,
+			WebSocket:    site.WebSocket,
+			BlockExploit: site.BlockCommonExploits,
+			RateLimited:  site.RateLimit.Enabled,
+			ProjectName:  owner[site.Domain],
+			ReqsPerMin:   snap.ReqsLast1m,
+			BytesPerMin:  snap.BytesLast1m,
+			BytesPerMinH: humanBytes(snap.BytesLast1m),
+			ErrsPerMin:   snap.ErrsLast1m,
+			P50:          snap.P50,
+			P95:          snap.P95,
+			P99:          snap.P99,
+			Series:       series,
 		})
 		totalReqs += snap.ReqsLast1m
 		totalErrs += snap.ErrsLast1m
@@ -375,12 +390,97 @@ func (s *Server) buildSiteRows() (rows []siteRow, totalReqs, totalErrs, totalByt
 	return
 }
 
+// domainOwners maps a domain to the project that created it (if any), so
+// the sites list can show "what's using this subdomain".
+func (s *Server) domainOwners() map[string]string {
+	m := map[string]string{}
+	if s.DB == nil {
+		return m
+	}
+	projs, err := s.DB.ListProjects()
+	if err != nil {
+		return m
+	}
+	for _, p := range projs {
+		if p.Domain != "" {
+			m[p.Domain] = p.Name
+		}
+	}
+	return m
+}
+
+// siteGroup collects all sites under one registrable (parent) domain so
+// the UI can show subdomains in a dropdown.
+type siteGroup struct {
+	Parent      string
+	Sites       []siteRow
+	Multi       bool // more than one site under this parent
+	ActiveCount int
+	TotalCount  int
+	ReqsPerMin  uint64
+	ErrsPerMin  uint64
+	AnyTLS      bool
+}
+
+func (s *Server) buildSiteGroups() (groups []siteGroup, totalReqs, totalErrs, totalBytes uint64, active int) {
+	rows, tr, te, tb, act := s.buildSiteRows()
+	byParent := map[string]*siteGroup{}
+	var order []string
+	for _, row := range rows {
+		parent := parentDomain(row.Domain)
+		g := byParent[parent]
+		if g == nil {
+			g = &siteGroup{Parent: parent}
+			byParent[parent] = g
+			order = append(order, parent)
+		}
+		g.Sites = append(g.Sites, row)
+		g.TotalCount++
+		if row.Enabled {
+			g.ActiveCount++
+		}
+		g.ReqsPerMin += row.ReqsPerMin
+		g.ErrsPerMin += row.ErrsPerMin
+		if row.TLS.Auto {
+			g.AnyTLS = true
+		}
+	}
+	sort.Strings(order)
+	for _, p := range order {
+		g := byParent[p]
+		g.Multi = len(g.Sites) > 1
+		// apex domain first, then subdomains alphabetically
+		sort.SliceStable(g.Sites, func(i, j int) bool {
+			ai, aj := g.Sites[i].Domain == p, g.Sites[j].Domain == p
+			if ai != aj {
+				return ai
+			}
+			return g.Sites[i].Domain < g.Sites[j].Domain
+		})
+		groups = append(groups, *g)
+	}
+	return groups, tr, te, tb, act
+}
+
+// parentDomain returns the registrable (eTLD+1) domain, so sub.example.com
+// and example.com group under "example.com".
+func parentDomain(domain string) string {
+	if e, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(domain, ".")); err == nil && e != "" {
+		return e
+	}
+	parts := strings.Split(domain, ".")
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return domain
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	rows, reqs, errs, bytes, active := s.buildSiteRows()
+	groups, reqs, errs, bytes, active := s.buildSiteGroups()
 	rate := 0.0
 	if reqs > 0 {
 		rate = float64(errs) / float64(reqs) * 100
@@ -391,17 +491,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		ReqsPerMin:  reqs,
 		BytesPerMin: humanBytes(bytes),
 		ErrorRate:   rate,
-		Sites:       rows,
+		Groups:      groups,
 	}
 	s.render(w, "layout", data)
 }
 
 func (s *Server) handleSiteRowsPartial(w http.ResponseWriter, r *http.Request) {
-	rows, _, _, _, _ := s.buildSiteRows()
+	groups, _, _, _, _ := s.buildSiteGroups()
 	data := struct {
-		Sites []siteRow
-		CSRF  string
-	}{Sites: rows, CSRF: s.Auth.EnsureCSRF(w, r)}
+		Groups []siteGroup
+		CSRF   string
+	}{Groups: groups, CSRF: s.Auth.EnsureCSRF(w, r)}
 	s.render(w, "site-rows", data)
 }
 

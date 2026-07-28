@@ -227,6 +227,8 @@ func (s *Server) handleProjectItem(w http.ResponseWriter, r *http.Request) {
 			s.setProjectServices(w, r, p)
 		case "env":
 			s.setProjectEnv(w, r, p)
+		case "rollback":
+			s.actionRollback(w, r, p)
 		default:
 			http.NotFound(w, r)
 		}
@@ -326,6 +328,33 @@ func (s *Server) actionDeploy(w http.ResponseWriter, r *http.Request, p *store.P
 	http.Redirect(w, r, "/projects/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
 }
 
+func (s *Server) actionRollback(w http.ResponseWriter, r *http.Request, p *store.Project) {
+	if !s.postCSRF(w, r) {
+		return
+	}
+	depID, err := strconv.ParseInt(r.FormValue("deployment"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad deployment id", http.StatusBadRequest)
+		return
+	}
+	if !s.isDeploying(p.ID) {
+		lb := s.logFor(p.ID)
+		lb.reset()
+		io.WriteString(lb, "Starting rollback...\n")
+		s.setDeploying(p.ID, true)
+		go func() {
+			defer s.setDeploying(p.ID, false)
+			if err := s.Deploy.Rollback(context.Background(), p.ID, depID, lb); err != nil {
+				io.WriteString(lb, "\n=== DEPLOY FAILED: "+err.Error()+" ===\n")
+			} else {
+				io.WriteString(lb, "\n=== DEPLOY OK ===\n")
+			}
+		}()
+	}
+	s.audit(r, s.user(r), "project.rollback", p.Name, strconv.FormatInt(depID, 10))
+	http.Redirect(w, r, "/projects/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
+}
+
 // TriggerDeploy starts an async deploy for a project (shared by the GUI
 // deploy button and by push webhooks). No-op if one is already running.
 func (s *Server) TriggerDeploy(id int64) {
@@ -373,6 +402,8 @@ type projectDetailData struct {
 	Services    []*store.Service
 	Linked      map[int64]bool
 	EnvText     string
+	Deployments []*store.Deployment
+	CurrentID   int64 // the live deployment's id (can't roll back to itself)
 }
 
 func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request, p *store.Project) {
@@ -392,6 +423,14 @@ func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request, p *store.
 			linked[sv.ID] = true
 		}
 	}
+	deps, _ := s.DB.ListDeployments(p.ID)
+	if len(deps) > 12 {
+		deps = deps[:12] // most recent dozen
+	}
+	var currentID int64
+	if d != nil {
+		currentID = d.ID
+	}
 	s.render(w, "layout", projectDetailData{
 		baseData:    s.page(w, r, p.Name, "projects", "project-detail"),
 		Project:     p,
@@ -402,6 +441,8 @@ func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request, p *store.
 		Services:    allSvcs,
 		Linked:      linked,
 		EnvText:     s.envText(p),
+		Deployments: deps,
+		CurrentID:   currentID,
 	})
 }
 

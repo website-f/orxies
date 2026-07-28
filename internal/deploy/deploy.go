@@ -219,8 +219,6 @@ func (m *Manager) finishContainer(ctx context.Context, p *store.Project, dep *st
 		return m.fail(dep, errors.New("agent not configured — container projects need the orxies-agent"))
 	}
 	image := fmt.Sprintf("orxies/%s:%d", p.Name, dep.ID)
-	name := fmt.Sprintf("orxies-%s-%d", p.Name, dep.ID)
-
 	if err := m.Agent.Build(ctx, agent.BuildSpec{
 		Name:       image,
 		SourcePath: src,
@@ -228,7 +226,15 @@ func (m *Manager) finishContainer(ctx context.Context, p *store.Project, dep *st
 	}, logW); err != nil {
 		return m.fail(dep, fmt.Errorf("build: %w", err))
 	}
+	dep.ImageRef = image
+	return m.runImage(ctx, p, dep, image, logW)
+}
 
+// runImage starts an already-built image as the project's new container,
+// health-checks it, flips the route, and drains older containers. Shared
+// by first-time deploy and rollback (which skips the build).
+func (m *Manager) runImage(ctx context.Context, p *store.Project, dep *store.Deployment, image string, logW io.Writer) error {
+	name := fmt.Sprintf("orxies-%s-%d", p.Name, dep.ID)
 	port, err := m.Store.AllocatePort(dep.ID, store.PortRangeLo, store.PortRangeHi)
 	if err != nil {
 		return m.fail(dep, err)
@@ -276,6 +282,31 @@ func (m *Manager) finishContainer(ctx context.Context, p *store.Project, dep *st
 	m.reload()
 	m.drainOld(ctx, p.ID, dep.ID)
 	return m.succeed(dep)
+}
+
+// Rollback re-runs a previous deployment's image (no rebuild) as a fresh
+// deployment, then drains the current one — zero-downtime, like a deploy.
+func (m *Manager) Rollback(ctx context.Context, projectID, deploymentID int64, logW io.Writer) error {
+	p, err := m.Store.GetProject(projectID)
+	if err != nil {
+		return err
+	}
+	if m.Agent == nil {
+		return errors.New("agent not configured")
+	}
+	target, err := m.Store.GetDeployment(deploymentID)
+	if err != nil {
+		return err
+	}
+	if target.ProjectID != projectID || target.ImageRef == "" {
+		return errors.New("that deployment has no image to roll back to")
+	}
+	dep := &store.Deployment{ProjectID: p.ID, Status: store.StatusBuilding, CommitSHA: target.CommitSHA}
+	if err := m.Store.CreateDeployment(dep); err != nil {
+		return err
+	}
+	fmt.Fprintf(logW, "Rolling back to deployment #%d (image %s)...\n", target.ID, target.ImageRef)
+	return m.runImage(ctx, p, dep, target.ImageRef, logW)
 }
 
 // Stop stops the project's current container (static projects: no-op).

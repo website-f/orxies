@@ -4,23 +4,30 @@
   <p class="muted">Live view of all routed sites. Auto-refreshes every 3s.</p>
 </section>
 
-<div class="kpis">
-  <div class="kpi">
+<div class="bento">
+  <div class="bento-tile kpi span-3">
     <div class="kpi-head"><span class="kpi-label">Active sites</span><span class="kpi-icon">{{icon "globe"}}</span></div>
     <span class="kpi-value">{{.ActiveSites}}</span>
   </div>
-  <div class="kpi">
+  <div class="bento-tile kpi span-3">
     <div class="kpi-head"><span class="kpi-label">Requests / min</span><span class="kpi-icon">{{icon "activity"}}</span></div>
     <span class="kpi-value">{{.ReqsPerMin}}</span>
   </div>
-  <div class="kpi">
+  <div class="bento-tile kpi span-3">
     <div class="kpi-head"><span class="kpi-label">Bytes out / min</span><span class="kpi-icon">{{icon "server"}}</span></div>
     <span class="kpi-value">{{.BytesPerMin}}</span>
   </div>
-  <div class="kpi">
+  <div class="bento-tile kpi span-3">
     <div class="kpi-head"><span class="kpi-label">Error rate</span><span class="kpi-icon {{if gt .ErrorRate 1.0}}warn{{else}}ok{{end}}">{{icon "alert"}}</span></div>
     <span class="kpi-value {{if gt .ErrorRate 1.0}}danger{{end}}">{{printf "%.2f%%" .ErrorRate}}</span>
   </div>
+  {{if .SysEnabled}}
+  <a class="bento-tile accent span-12" href="/system">
+    <span class="accent-icon">{{icon "activity"}}</span>
+    <span class="accent-body"><strong>Server health</strong><span class="muted small">CPU · memory · swap · disk · load — live meters</span></span>
+    <span class="accent-arrow">{{icon "arrow-right"}}</span>
+  </a>
+  {{end}}
 </div>
 
 <section class="card">
@@ -47,5 +54,6 @@
       </tbody>
     </table>
   </div>
+  <p class="muted small table-hint">Tip: click the ⌄ on a row to expand it and see what's using that domain.</p>
 </section>
 {{end}}

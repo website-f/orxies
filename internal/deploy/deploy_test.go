@@ -53,7 +53,7 @@ func (f *fakeAgent) Run(_ context.Context, spec agent.RunSpec) (string, error) {
 	return "cid-" + spec.Name, nil
 }
 func (f *fakeAgent) EnsureNetwork(_ context.Context, _ string) error { return nil }
-func (f *fakeAgent) Stop(_ context.Context, _ string) error { return nil }
+func (f *fakeAgent) Stop(_ context.Context, _ string) error          { return nil }
 func (f *fakeAgent) Remove(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,6 +154,47 @@ func makeGitRepo(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	return dir, h.String()
+}
+
+func TestRollback(t *testing.T) {
+	db := openStore(t)
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "Dockerfile"), []byte("FROM scratch"), 0o644)
+	sites := t.TempDir()
+	fa := newFakeAgent()
+	defer fa.closeAll()
+	m := &Manager{Store: db, Agent: fa, SitesDir: sites, OnChange: func() {}}
+	p := &store.Project{Name: "api", SourcePath: src, Strategy: "dockerfile", Domain: "api.test", AppPort: 80}
+	if err := db.CreateProject(p); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := m.Deploy(ctx, p.ID, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	d1, _ := db.LatestDeployment(p.ID)
+	if err := m.Deploy(ctx, p.ID, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	d2, _ := db.LatestDeployment(p.ID)
+	if d1.ImageRef == "" || d2.ImageRef == d1.ImageRef {
+		t.Fatalf("expected distinct images, got %q and %q", d1.ImageRef, d2.ImageRef)
+	}
+
+	// Roll back to the first deployment's image (no rebuild).
+	if err := m.Rollback(ctx, p.ID, d1.ID, io.Discard); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	d3, _ := db.LatestDeployment(p.ID)
+	if d3.ID == d2.ID {
+		t.Fatal("rollback did not create a new deployment")
+	}
+	if d3.ImageRef != d1.ImageRef {
+		t.Errorf("rollback image = %q, want %q (reuse, no rebuild)", d3.ImageRef, d1.ImageRef)
+	}
+	if d3.Status != store.StatusRunning {
+		t.Errorf("rollback status = %s, want running", d3.Status)
+	}
 }
 
 func TestDeployFromGitRepo(t *testing.T) {
