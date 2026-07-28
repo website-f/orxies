@@ -1,15 +1,15 @@
 /* ──────────────────────────────────────────────────────────────────
    orxies — design system (per proxgo.md)
-   Flat (no gradients), green/blue accents, 20px cards, Inter + JetBrains
+   Flat (no gradients), blue accents, 20px cards, Inter + JetBrains
    Mono. Dark by default; light via prefers-color-scheme or an explicit
    [data-theme] set by the theme toggle. Self-hosted; CSP-clean.
    ────────────────────────────────────────────────────────────────── */
 
 :root {
   /* brand (shared across themes) */
-  --primary:      #00E559;   /* green — primary action */
-  --on-primary:   #04240F;   /* text on green */
-  --accent:       #38BDF8;   /* blue */
+  --primary:      #3B82F6;   /* blue — primary action */
+  --on-primary:   #FFFFFF;   /* text on primary */
+  --accent:       #38BDF8;   /* sky-blue accent */
 
   /* radii */
   --r-sm: 8px;
@@ -37,10 +37,10 @@
   --muted:         #A1A1AA;
   --muted-2:       #71717A;
 
-  --primary-soft:  rgba(0, 229, 89, 0.13);
+  --primary-soft:  rgba(59, 130, 246, 0.16);
   --accent-soft:   rgba(56, 189, 248, 0.14);
-  --ok:            #34E57F;
-  --ok-soft:       rgba(0, 229, 89, 0.13);
+  --ok:            #38BDF8;
+  --ok-soft:       rgba(56, 189, 248, 0.14);
   --warn:          #FBBF24;
   --warn-soft:     rgba(251, 191, 36, 0.14);
   --danger:        #F87171;
@@ -69,10 +69,10 @@
     --text-2:        #27272A;
     --muted:         #52525B;
     --muted-2:       #71717A;
-    --primary-soft:  rgba(0, 196, 74, 0.14);
+    --primary-soft:  rgba(37, 99, 235, 0.12);
     --accent-soft:   rgba(2, 132, 199, 0.12);
-    --ok:            #16A34A;
-    --ok-soft:       rgba(0, 196, 74, 0.13);
+    --ok:            #0284C7;
+    --ok-soft:       rgba(2, 132, 199, 0.13);
     --warn:          #B45309;
     --warn-soft:     rgba(180, 83, 9, 0.11);
     --danger:        #DC2626;
@@ -99,10 +99,10 @@
   --text-2:        #27272A;
   --muted:         #52525B;
   --muted-2:       #71717A;
-  --primary-soft:  rgba(0, 196, 74, 0.14);
+  --primary-soft:  rgba(37, 99, 235, 0.12);
   --accent-soft:   rgba(2, 132, 199, 0.12);
-  --ok:            #16A34A;
-  --ok-soft:       rgba(0, 196, 74, 0.13);
+  --ok:            #0284C7;
+  --ok-soft:       rgba(2, 132, 199, 0.13);
   --warn:          #B45309;
   --warn-soft:     rgba(180, 83, 9, 0.11);
   --danger:        #DC2626;
@@ -357,7 +357,7 @@ tr.site-detail > td { background: var(--bg); border-bottom: 1px solid var(--bord
 .btn.small .icon { width: 13px; height: 13px; }
 .btn.block { width: 100%; padding: 12px; font-size: 15px; }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 600; }
-.btn.primary:hover { background: #12F06B; border-color: #12F06B; }
+.btn.primary:hover { background: #2563EB; border-color: #2563EB; }
 .btn.primary .icon { color: var(--on-primary); }
 .btn.danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
 .btn.danger:hover { background: var(--danger-soft); border-color: var(--danger); }
