@@ -36,6 +36,8 @@ type Orchestrator interface {
 	Logs(context.Context, string, int, io.Writer) error
 	Status(context.Context, string) (agent.Status, error)
 	EnsureNetwork(context.Context, string) error
+	ExecOut(context.Context, agent.ExecSpec, io.Writer) error
+	ExecIn(context.Context, agent.ExecSpec, io.Reader) error
 }
 
 // NetworkName is the shared docker network apps + managed services join so
@@ -44,12 +46,13 @@ const NetworkName = "orxies-net"
 
 // Manager orchestrates deployments.
 type Manager struct {
-	Store    *store.Store
-	Agent    Orchestrator // nil → only static projects can deploy
-	SitesDir string
-	ReposDir string         // where git-backed projects are checked out
-	Secrets  *secretbox.Box // decrypts per-project access tokens
-	OnChange func()         // called after a site file is written, to hot-reload routing
+	Store      *store.Store
+	Agent      Orchestrator // nil → only static projects can deploy
+	SitesDir   string
+	ReposDir   string         // where git-backed projects are checked out
+	BackupsDir string         // where managed-service dumps are stored
+	Secrets    *secretbox.Box // decrypts per-project access tokens
+	OnChange   func()         // called after a site file is written, to hot-reload routing
 }
 
 // DetectInfo is what orxies inferred about a source tree.

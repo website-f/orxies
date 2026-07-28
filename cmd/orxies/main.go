@@ -303,15 +303,19 @@ func cmdServe(args []string) {
 		fatal("secretbox: %v", err)
 	}
 	reposDir := filepath.Join(stateDir, "repos")
-	if err := os.MkdirAll(reposDir, 0o700); err != nil {
-		fatal("mkdir repos: %v", err)
+	backupsDir := filepath.Join(stateDir, "backups")
+	for _, d := range []string{reposDir, backupsDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			fatal("mkdir %s: %v", d, err)
+		}
 	}
 	deployMgr := &deploy.Manager{
-		Store:    db,
-		Agent:    agent.NewClient(*agentSock, agentKey),
-		SitesDir: *sitesDir,
-		ReposDir: reposDir,
-		Secrets:  secrets,
+		Store:      db,
+		Agent:      agent.NewClient(*agentSock, agentKey),
+		SitesDir:   *sitesDir,
+		ReposDir:   reposDir,
+		BackupsDir: backupsDir,
+		Secrets:    secrets,
 	}
 
 	acmeMgr, err := acme.New(*certsDir, g.ACMEEmail, g.ACMEDirectory)

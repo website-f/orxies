@@ -78,6 +78,7 @@ func New(s *Server) (*Server, error) {
 			return template.HTML(`<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-` +
 				template.HTMLEscapeString(name) + `"/></svg>`)
 		},
+		"bytes":      func(n int64) string { return humanBytes(uint64(n)) },
 		"spark":      func(series []uint32) template.HTML { return renderSpark(series, 108, 26, "spark") },
 		"sparkLarge": func(series []uint32) template.HTML { return renderSpark(series, 600, 60, "spark spark-lg") },
 	}

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,10 +24,11 @@ import (
 // on the requested port so the manager's TCP health check passes without
 // Docker; Remove closes it.
 type fakeAgent struct {
-	mu      sync.Mutex
-	lns     map[string]net.Listener
-	built   []string
-	removed []string
+	mu       sync.Mutex
+	lns      map[string]net.Listener
+	built    []string
+	removed  []string
+	restored string
 }
 
 func newFakeAgent() *fakeAgent { return &fakeAgent{lns: map[string]net.Listener{}} }
@@ -53,7 +55,18 @@ func (f *fakeAgent) Run(_ context.Context, spec agent.RunSpec) (string, error) {
 	return "cid-" + spec.Name, nil
 }
 func (f *fakeAgent) EnsureNetwork(_ context.Context, _ string) error { return nil }
-func (f *fakeAgent) Stop(_ context.Context, _ string) error          { return nil }
+func (f *fakeAgent) ExecOut(_ context.Context, _ agent.ExecSpec, w io.Writer) error {
+	io.WriteString(w, "-- fake dump\nSELECT 1;\n")
+	return nil
+}
+func (f *fakeAgent) ExecIn(_ context.Context, _ agent.ExecSpec, r io.Reader) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, _ := io.ReadAll(r)
+	f.restored = string(b)
+	return nil
+}
+func (f *fakeAgent) Stop(_ context.Context, _ string) error { return nil }
 func (f *fakeAgent) Remove(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,6 +167,42 @@ func makeGitRepo(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	return dir, h.String()
+}
+
+func TestBackupRestore(t *testing.T) {
+	db := openStore(t)
+	fa := newFakeAgent()
+	defer fa.closeAll()
+	m := &Manager{Store: db, Agent: fa, BackupsDir: t.TempDir()}
+	svc := &store.Service{Name: "pg", Engine: "postgres", Mode: "managed",
+		CredsEnc: `{"user":"orxies","pass":"secret","db":"app"}`}
+	if err := db.CreateService(svc); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	name, err := m.BackupService(ctx, svc.ID)
+	if err != nil || !strings.HasSuffix(name, ".sql") {
+		t.Fatalf("BackupService = %q, %v", name, err)
+	}
+	list, _ := m.ListBackups(svc.ID)
+	if len(list) != 1 || list[0].Name != name {
+		t.Fatalf("ListBackups = %+v", list)
+	}
+	p, _ := m.BackupPath(svc.ID, name)
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), "fake dump") {
+		t.Errorf("dump file content = %q", b)
+	}
+	if err := m.RestoreService(ctx, svc.ID, name); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if !strings.Contains(fa.restored, "fake dump") {
+		t.Errorf("restored stdin = %q", fa.restored)
+	}
+	// Path traversal must be rejected.
+	if _, err := m.BackupPath(svc.ID, "../../etc/passwd"); err == nil {
+		t.Error("expected traversal rejection")
+	}
 }
 
 func TestRollback(t *testing.T) {

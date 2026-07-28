@@ -25,6 +25,45 @@
   </div>
 </section>
 
+{{if .BackupsOK}}
+<section class="card">
+  <header class="card-header">
+    <h2 class="hero-title-row">{{icon "database"}} Backups</h2>
+    <form method="post" action="/services/{{.Service.ID}}/backup" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn primary" type="submit">{{icon "download"}} Back up now</button>
+    </form>
+  </header>
+  <p class="muted small">Point-in-time <span class="mono">{{if eq .Service.Engine "postgres"}}pg_dump{{else}}mysqldump{{end}}</span> snapshots. Restoring overwrites the current database.</p>
+  {{if .Backups}}
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>Snapshot</th><th>Size</th><th>Taken</th><th></th></tr></thead>
+      <tbody>
+        {{range .Backups}}
+        <tr>
+          <td class="mono small">{{.Name}}</td>
+          <td class="mono small">{{bytes .Size}}</td>
+          <td class="muted small">{{.ModTime.Format "2006-01-02 15:04:05"}} UTC</td>
+          <td class="actions">
+            <a class="btn small" href="/services/{{$.Service.ID}}/backup-download?name={{.Name}}">{{icon "download"}} Download</a>
+            <form method="post" action="/services/{{$.Service.ID}}/restore" class="inline" data-confirm="Restore &quot;{{.Name}}&quot;? This overwrites the current database.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <button class="btn small danger" type="submit">{{icon "rotate"}} Restore</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted small">No snapshots yet.</p>
+  {{end}}
+</section>
+{{end}}
+
 {{if eq .Service.Mode "managed"}}
 <section class="card">
   <header class="card-header"><h2 class="hero-title-row">{{icon "activity"}} Provision log</h2><span class="muted small">auto-refreshes every 2s</span></header>

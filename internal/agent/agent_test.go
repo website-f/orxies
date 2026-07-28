@@ -32,8 +32,16 @@ func (f *fakeRunner) Logs(_ context.Context, _ string, _ int, w io.Writer) error
 	return nil
 }
 func (f *fakeRunner) Status(_ context.Context, _ string) (Status, error) { return f.status, nil }
-func (f *fakeRunner) EnsureNetwork(_ context.Context, _ string) error     { return nil }
-func (f *fakeRunner) Health(_ context.Context) Health                     { return Health{OK: true, Docker: true} }
+func (f *fakeRunner) EnsureNetwork(_ context.Context, _ string) error { return nil }
+func (f *fakeRunner) ExecOut(_ context.Context, _ ExecSpec, w io.Writer) error {
+	io.WriteString(w, "FAKE DUMP\n")
+	return nil
+}
+func (f *fakeRunner) ExecIn(_ context.Context, _ ExecSpec, r io.Reader) error {
+	io.Copy(io.Discard, r)
+	return nil
+}
+func (f *fakeRunner) Health(_ context.Context) Health { return Health{OK: true, Docker: true} }
 
 const testSecret = "s3cr3t"
 

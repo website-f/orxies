@@ -4,7 +4,7 @@
 
 Think of it as the security-first, single-binary, open-source lane next to Vercel/Railway — but running entirely on **your** server, with **your** data.
 
-> **Status — read this first.** orxies today is a hardened **reverse proxy + static host + automatic TLS + admin GUI**, and a working **deploy engine**: **connect a Git repo** (or point at a folder), and the Projects section clones it, auto-detects the type, builds it (any `Dockerfile`), runs it in a container, health-checks it, and routes your domain — with **zero-config Nixpacks builds** (Node/Next/Python/Go/PHP, no Dockerfile needed), **zero-downtime redeploys**, **deploy-on-push webhooks**, encrypted tokens for private repos, live logs, and stop/remove — plus **managed databases** (Postgres/MySQL/Redis) with credentials auto-injected into your app (Phases 3–5 ✅). Still on the roadmap: per-framework recipes (WordPress, static-export), rollback history, and service backups. Throughout these docs, **✅ = works today**, **🚧 = planned**. Full plan + diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+> **Status — read this first.** orxies today is a hardened **reverse proxy + static host + automatic TLS + admin GUI**, and a working **deploy engine**: **connect a Git repo** (or point at a folder), and the Projects section clones it, auto-detects the type, builds it (any `Dockerfile`), runs it in a container, health-checks it, and routes your domain — with **zero-config Nixpacks builds** (Node/Next/Python/Go/PHP, no Dockerfile needed), **zero-downtime redeploys**, **deploy-on-push webhooks**, encrypted tokens for private repos, live logs, and stop/remove — plus **managed databases** (Postgres/MySQL/Redis) with credentials auto-injected into your app, and **one-click database backups + restore** (Postgres/MySQL) from the GUI (Phases 3–6 ✅). Still on the roadmap: per-framework recipes (WordPress, static-export), scheduled backups, and preview environments. Throughout these docs, **✅ = works today**, **🚧 = planned**. Full plan + diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## The idea
 
@@ -666,7 +666,7 @@ orxies is built in the open, one shippable phase at a time. Every phase leaves t
 | 3 | **Runtime foundation** — SQLite store, Project model, Docker orchestration agent, deploy-from-path, Dockerfile builds, zero-downtime redeploy, Projects GUI | ✅ done |
 | 4 | **Git + build** — Git repo source (clone/pull), encrypted tokens for private repos, richer auto-detect, deploy-on-push webhooks | ✅ done |
 | 5 | **Managed services** — Postgres/MySQL/Redis add-ons, encrypted creds, env injection, external DBs, Services GUI | ✅ done |
-| 6 | Framework polish — **rollback ✅**, bento UI revamp ✅; WordPress recipe, static-export detection, service backups, preview envs | 🚧 in progress |
+| 6 | Framework polish — **rollback ✅**, bento UI revamp ✅, **database backups + restore ✅** (on-demand pg_dump/mysqldump, download, restore); WordPress recipe, static-export detection, scheduled backups, preview envs | 🚧 in progress |
 | 7 | Scale & DevOps — replicas/load-balancing, alerts, multi-node, RBAC/teams | 🚧 |
 
 Full detail, architecture diagrams, and the design rationale: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

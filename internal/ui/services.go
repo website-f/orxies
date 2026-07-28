@@ -187,22 +187,60 @@ func (s *Server) handleServiceItem(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			io.WriteString(w, template.HTMLEscapeString(out))
+		case "backup":
+			if !s.postCSRF(w, r) {
+				return
+			}
+			name, err := s.Deploy.BackupService(r.Context(), id)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.audit(r, s.user(r), "service.backup", svc.Name, name)
+			http.Redirect(w, r, "/services/"+parts[0], http.StatusSeeOther)
+		case "restore":
+			if !s.postCSRF(w, r) {
+				return
+			}
+			name := strings.TrimSpace(r.FormValue("name"))
+			if err := s.Deploy.RestoreService(r.Context(), id, name); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.audit(r, s.user(r), "service.restore", svc.Name, name)
+			http.Redirect(w, r, "/services/"+parts[0], http.StatusSeeOther)
+		case "backup-download":
+			name := strings.TrimSpace(r.URL.Query().Get("name"))
+			path, err := s.Deploy.BackupPath(id, name)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/sql")
+			w.Header().Set("Content-Disposition", "attachment; filename=\""+svc.Engine+"-"+name+"\"")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			http.ServeFile(w, r, path)
 		default:
 			http.NotFound(w, r)
 		}
 		return
 	}
+	backups, _ := s.Deploy.ListBackups(id)
 	type data struct {
 		baseData
-		Service *store.Service
-		Host    string
-		Busy    bool
+		Service   *store.Service
+		Host      string
+		Busy      bool
+		Backups   []deploy.Backup
+		BackupsOK bool
 	}
 	s.render(w, "layout", data{
-		baseData: s.page(w, r, svc.Name, "services", "service-detail"),
-		Service:  svc,
-		Host:     deploy.ServiceName(svc.Name),
-		Busy:     s.isSvcBusy(id),
+		baseData:  s.page(w, r, svc.Name, "services", "service-detail"),
+		Service:   svc,
+		Host:      deploy.ServiceName(svc.Name),
+		Busy:      s.isSvcBusy(id),
+		Backups:   backups,
+		BackupsOK: svc.Mode == "managed" && (svc.Engine == "postgres" || svc.Engine == "mysql"),
 	})
 }
 

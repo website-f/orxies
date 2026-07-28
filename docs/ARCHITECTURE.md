@@ -90,7 +90,7 @@ flowchart TB
 | **State store** | **SQLite** in `data/` (sites still exportable as YAML) | ✅ |
 | **Builder** | Clone repo → detect type → produce a runnable artifact (Nixpacks/Dockerfile image or static dir) | ✅ |
 | **Orchestrator agent** | Create/start/stop app + (soon) service containers via Docker, publish to loopback ports | ✅ |
-| **Managed services** | Postgres/MySQL/Redis containers on a shared net, encrypted creds, env injection (backups: Phase 6) | ✅ |
+| **Managed services** | Postgres/MySQL/Redis containers on a shared net, encrypted creds, env injection, on-demand backup/restore (Postgres/MySQL) | ✅ |
 | **Git integration** | Git clone/pull (go-git) + tokens + deploy-on-push webhooks; GitHub App later | ✅ (PAT) |
 
 ---
@@ -196,7 +196,7 @@ flowchart LR
 - **Engines:** Postgres, MySQL/MariaDB, Redis first; Mongo later.
 - **Managed:** container + named volume + auto-generated credentials, stored encrypted, injected as `DATABASE_URL` (and engine-specific vars) into linked projects.
 - **External:** user pastes their own connection string; orxies just injects it.
-- **Backups:** scheduled `pg_dump`/`mysqldump` to `/data/backups`, with restore from the GUI.
+- **Backups:** on-demand `pg_dump`/`mysqldump` to `/data/backups`, with download and one-click restore from the GUI ✅ (scheduled/automatic backups still 🚧).
 - WordPress and other DB-required types wire this automatically.
 
 ---
@@ -259,7 +259,7 @@ The sections you asked for, each a first-class area of the admin GUI:
 | **Dashboard** | Fleet overview, live traffic, health | ✅ (extend) |
 | **Projects** | Connect repo → detect → configure → deploy → logs → rollback → link domain → attach services | 🚧 |
 | **Domains** | Add domain, point, port, SSL/TLS auto-issue | ✅ |
-| **Services** | Managed DBs/caches, credentials, backups | 🚧 |
+| **Services** | Managed DBs/caches, credentials, on-demand backup/restore | ✅ (scheduled 🚧) |
 | **Security** | Admins, 2FA, IP allowlist, audit log, CSP | ✅ (extend per-project) |
 | **Scaling / LB** | Replicas, round-robin upstreams, health checks | ✅ (pool) · 🚧 (replicas) |
 | **DevOps / Settings** | Build settings, webhooks, backups, system, updates | 🚧 |
@@ -323,12 +323,12 @@ Each phase is independently shippable and leaves the tool fully working.
 | **3** | Runtime foundation | SQLite store · Project model · **orxies-agent** (Docker over a unix socket) · deploy-from-path · Dockerfile builds · zero-downtime redeploy · lifecycle (deploy/stop/remove/logs) · Projects GUI | ✅ done |
 | **4** | Git + build | Git repo source (clone/pull via go-git) · encrypted access tokens (private repos) · richer auto-detect · **deploy-on-push webhooks** (HMAC) · Projects GUI git fields | ✅ done¹ |
 | **5** | Managed services | Postgres/MySQL/Redis add-ons on a shared network · encrypted creds · **env injection** (`DATABASE_URL` + custom vars) · external-DB option · Services GUI | ✅ done² |
-| **6** | Framework polish | **rollback history ✅** · **bento UI revamp ✅** (expandable site rows, loading/progress states, responsive) · WordPress recipe · static-export detection · service backups · preview envs | 🚧 in progress |
+| **6** | Framework polish | **rollback history ✅** · **bento UI revamp ✅** (expandable site rows, loading/progress states, responsive) · **database backups + restore ✅** (on-demand `pg_dump`/`mysqldump`, download, one-click restore) · WordPress recipe · static-export detection · scheduled backups · preview envs | 🚧 in progress |
 | **7** | Scale & DevOps | Replicas/load-balancing · alerts · multi-node · RBAC/teams · image scanning | 🚧 |
 
 **Phase 3 is the pivot** — once the agent can build-and-run one project from a local path and orxies routes to it, everything after is additive.
 
-² Phase 5 note: Managed Postgres/MySQL/Redis, encrypted credentials, a shared `orxies-net` (apps reach DBs by container name), env injection (`DATABASE_URL`/`PG*`/etc. + custom vars), and external services are done and verified live (provisioned Postgres → linked app connected to it). Scheduled **backups** move to Phase 6.
+² Phase 5 note: Managed Postgres/MySQL/Redis, encrypted credentials, a shared `orxies-net` (apps reach DBs by container name), env injection (`DATABASE_URL`/`PG*`/etc. + custom vars), and external services are done and verified live (provisioned Postgres → linked app connected to it). **On-demand backup/restore** landed in Phase 6 (verified live: backup → drop table → restore → row returns); only *scheduled/automatic* backups remain.
 
 ¹ Phase 4 note: Git-source + tokens + auto-detect + webhooks + **Nixpacks** are done and verified. The agent image ships a pinned, static musl `nixpacks` binary + `buildx`; a real no-Dockerfile Node build was verified end to end (build → run → serve on `$PORT`). Both build paths — `Dockerfile` and Nixpacks — are live.
 

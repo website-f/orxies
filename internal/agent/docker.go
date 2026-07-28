@@ -65,6 +65,43 @@ func (CLIRunner) Run(ctx context.Context, spec RunSpec) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ExecOut runs `docker exec` and streams stdout to w.
+func (CLIRunner) ExecOut(ctx context.Context, spec ExecSpec, w io.Writer) error {
+	args := []string{"exec"}
+	for k, v := range spec.Env {
+		args = append(args, "-e", k+"="+v)
+	}
+	args = append(args, spec.Container)
+	args = append(args, spec.Cmd...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdout = w
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(errb.String()))
+	}
+	return nil
+}
+
+// ExecIn runs `docker exec -i` feeding r to the command's stdin.
+func (CLIRunner) ExecIn(ctx context.Context, spec ExecSpec, r io.Reader) error {
+	args := []string{"exec", "-i"}
+	for k, v := range spec.Env {
+		args = append(args, "-e", k+"="+v)
+	}
+	args = append(args, spec.Container)
+	args = append(args, spec.Cmd...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdin = r
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
 // EnsureNetwork creates a docker network if it doesn't already exist.
 func (CLIRunner) EnsureNetwork(ctx context.Context, name string) error {
 	// `docker network inspect` succeeds if it exists; only create otherwise.

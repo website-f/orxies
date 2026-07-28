@@ -8,7 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
+	"time"
 
 	"orxies/internal/agent"
 	"orxies/internal/store"
@@ -208,4 +213,153 @@ func randToken() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// ---- backups (Postgres / MySQL) ----
+
+// Backup is one stored dump file.
+type Backup struct {
+	Name    string
+	Size    int64
+	ModTime time.Time
+}
+
+func (m *Manager) serviceBackupDir(svc *store.Service) string {
+	return filepath.Join(m.BackupsDir, safeName(svc.Name))
+}
+
+// BackupService dumps a managed database to a timestamped .sql file and
+// returns the filename.
+func (m *Manager) BackupService(ctx context.Context, serviceID int64) (string, error) {
+	svc, err := m.Store.GetService(serviceID)
+	if err != nil {
+		return "", err
+	}
+	if svc.Mode != "managed" {
+		return "", errors.New("only managed services can be backed up")
+	}
+	if m.Agent == nil {
+		return "", errors.New("agent not configured")
+	}
+	env, cmd, err := dumpCommand(svc.Engine, m.decodeCreds(svc))
+	if err != nil {
+		return "", err
+	}
+	dir := m.serviceBackupDir(svc)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	name := time.Now().UTC().Format("20060102-150405") + ".sql"
+	tmp := filepath.Join(dir, name+".part")
+	f, err := os.Create(tmp)
+	if err != nil {
+		return "", err
+	}
+	spec := agent.ExecSpec{Container: ServiceName(svc.Name), Env: env, Cmd: cmd}
+	if err := m.Agent.ExecOut(ctx, spec, f); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return "", err
+	}
+	f.Close()
+	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// ListBackups returns a service's dump files, newest first.
+func (m *Manager) ListBackups(serviceID int64) ([]Backup, error) {
+	svc, err := m.Store.GetService(serviceID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(m.serviceBackupDir(svc))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []Backup
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, Backup{Name: e.Name(), Size: info.Size(), ModTime: info.ModTime()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
+	return out, nil
+}
+
+// BackupPath returns the on-disk path of a named backup (guards traversal).
+func (m *Manager) BackupPath(serviceID int64, name string) (string, error) {
+	if err := safeBackupName(name); err != nil {
+		return "", err
+	}
+	svc, err := m.Store.GetService(serviceID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(m.serviceBackupDir(svc), name), nil
+}
+
+// RestoreService pipes a stored dump back into the managed database.
+func (m *Manager) RestoreService(ctx context.Context, serviceID int64, name string) error {
+	if err := safeBackupName(name); err != nil {
+		return err
+	}
+	svc, err := m.Store.GetService(serviceID)
+	if err != nil {
+		return err
+	}
+	if svc.Mode != "managed" {
+		return errors.New("only managed services can be restored")
+	}
+	if m.Agent == nil {
+		return errors.New("agent not configured")
+	}
+	env, cmd, err := restoreCommand(svc.Engine, m.decodeCreds(svc))
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(filepath.Join(m.serviceBackupDir(svc), name))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return m.Agent.ExecIn(ctx, agent.ExecSpec{Container: ServiceName(svc.Name), Env: env, Cmd: cmd}, f)
+}
+
+func safeBackupName(name string) error {
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") || !strings.HasSuffix(name, ".sql") {
+		return errors.New("invalid backup name")
+	}
+	return nil
+}
+
+func dumpCommand(engine string, c Creds) (map[string]string, []string, error) {
+	switch engine {
+	case "postgres":
+		return map[string]string{"PGPASSWORD": c.Pass}, []string{"pg_dump", "-U", c.User, c.DB}, nil
+	case "mysql":
+		return map[string]string{"MYSQL_PWD": c.Pass}, []string{"mysqldump", "-u", c.User, c.DB}, nil
+	default:
+		return nil, nil, fmt.Errorf("backups aren't supported for %s services", engine)
+	}
+}
+
+func restoreCommand(engine string, c Creds) (map[string]string, []string, error) {
+	switch engine {
+	case "postgres":
+		return map[string]string{"PGPASSWORD": c.Pass}, []string{"psql", "-U", c.User, c.DB}, nil
+	case "mysql":
+		return map[string]string{"MYSQL_PWD": c.Pass}, []string{"mysql", "-u", c.User, c.DB}, nil
+	default:
+		return nil, nil, fmt.Errorf("restore isn't supported for %s services", engine)
+	}
 }

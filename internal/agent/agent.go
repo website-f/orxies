@@ -10,6 +10,7 @@ package agent
 import (
 	"context"
 	"crypto/hmac"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -37,6 +38,13 @@ type RunSpec struct {
 	Unhardened bool              `json:"unhardened"` // skip cap-drop/no-new-privileges (DB images need caps)
 }
 
+// ExecSpec runs a command inside a container (used for DB dump/restore).
+type ExecSpec struct {
+	Container string            `json:"container"`
+	Env       map[string]string `json:"env"`
+	Cmd       []string          `json:"cmd"`
+}
+
 // Status is a container's current state.
 type Status struct {
 	State   string `json:"state"` // running | exited | created | ""(absent)
@@ -61,6 +69,10 @@ type Runner interface {
 	Logs(ctx context.Context, name string, tail int, w io.Writer) error
 	Status(ctx context.Context, name string) (Status, error)
 	EnsureNetwork(ctx context.Context, name string) error
+	// ExecOut runs cmd in a container and streams stdout to w (DB dump).
+	ExecOut(ctx context.Context, spec ExecSpec, w io.Writer) error
+	// ExecIn runs cmd in a container feeding r as stdin (DB restore).
+	ExecIn(ctx context.Context, spec ExecSpec, r io.Reader) error
 	Health(ctx context.Context) Health
 }
 
@@ -83,6 +95,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/stop", s.auth(s.handleStop))
 	mux.HandleFunc("/v1/remove", s.auth(s.handleRemove))
 	mux.HandleFunc("/v1/network", s.auth(s.handleNetwork))
+	mux.HandleFunc("/v1/exec-out", s.auth(s.handleExecOut))
+	mux.HandleFunc("/v1/exec-in", s.auth(s.handleExecIn))
 	mux.HandleFunc("/v1/logs", s.auth(s.handleLogs))
 	mux.HandleFunc("/v1/status", s.auth(s.handleStatus))
 	mux.HandleFunc("/v1/health", s.auth(s.handleHealth))
@@ -163,6 +177,45 @@ func (s *Server) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.runner.EnsureNetwork(r.Context(), body.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleExecOut streams a command's stdout (e.g. pg_dump) to the client.
+// The exit status rides in a trailer so the body stays a clean dump.
+func (s *Server) handleExecOut(w http.ResponseWriter, r *http.Request) {
+	var spec ExecSpec
+	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil || spec.Container == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Trailer", "X-Exec-Status")
+	fw := &flushWriter{w: w}
+	if err := s.runner.ExecOut(r.Context(), spec, fw); err != nil {
+		w.Header().Set("X-Exec-Status", "error: "+err.Error())
+		slog.Warn("exec-out failed", "container", spec.Container, "err", err)
+		return
+	}
+	w.Header().Set("X-Exec-Status", "ok")
+}
+
+// handleExecIn feeds the request body to a command's stdin (DB restore).
+// The spec rides in a header so the body is pure stdin.
+func (s *Server) handleExecIn(w http.ResponseWriter, r *http.Request) {
+	raw, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Exec-Spec"))
+	if err != nil {
+		http.Error(w, "bad spec", http.StatusBadRequest)
+		return
+	}
+	var spec ExecSpec
+	if json.Unmarshal(raw, &spec) != nil || spec.Container == "" {
+		http.Error(w, "bad spec", http.StatusBadRequest)
+		return
+	}
+	if err := s.runner.ExecIn(r.Context(), spec, r.Body); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

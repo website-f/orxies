@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -158,6 +159,53 @@ func (c *Client) Stop(ctx context.Context, name string) error {
 // EnsureNetwork creates the named docker network if absent.
 func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
 	return c.postJSON(ctx, "/v1/network", map[string]string{"name": name}, nil)
+}
+
+// ExecOut runs a command in a container and copies its stdout to w. The
+// exit status arrives as a trailer once the body is fully read.
+func (c *Client) ExecOut(ctx context.Context, spec ExecSpec, w io.Writer) error {
+	b, _ := json.Marshal(spec)
+	req, err := c.newReq(ctx, http.MethodPost, "/v1/exec-out", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("exec-out: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		return err
+	}
+	if st := resp.Trailer.Get("X-Exec-Status"); st != "" && st != "ok" {
+		return fmt.Errorf("exec failed: %s", st)
+	}
+	return nil
+}
+
+// ExecIn runs a command in a container feeding r to its stdin.
+func (c *Client) ExecIn(ctx context.Context, spec ExecSpec, r io.Reader) error {
+	b, _ := json.Marshal(spec)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/exec-in", r)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", c.secret)
+	req.Header.Set("X-Exec-Spec", base64.StdEncoding.EncodeToString(b))
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("exec-in: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 // Remove force-removes the container by name.
