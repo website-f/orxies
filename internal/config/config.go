@@ -305,6 +305,16 @@ func loadSiteFile(path string) (*Site, error) {
 	return &s, nil
 }
 
+// LoadSite reads one site config from sitesDir by filename, so callers
+// that rewrite a site (e.g. a redeploy flipping a route) can start from
+// what is already on disk instead of resetting hand-set options.
+func LoadSite(sitesDir, filename string) (*Site, error) {
+	if filename == "" || strings.ContainsAny(filename, "/\\") {
+		return nil, errors.New("invalid filename")
+	}
+	return loadSiteFile(filepath.Join(sitesDir, filename))
+}
+
 // SaveSite writes a site config back to disk. Used by the UI to persist
 // edits. Returns the resolved path.
 func SaveSite(sitesDir string, s *Site) (string, error) {

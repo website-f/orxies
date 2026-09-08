@@ -4,7 +4,7 @@
 
 Think of it as the security-first, single-binary, open-source lane next to Vercel/Railway — but running entirely on **your** server, with **your** data.
 
-> **Status — read this first.** orxies today is a hardened **reverse proxy + static host + automatic TLS + admin GUI**, and a working **deploy engine**: **connect a Git repo** (or point at a folder), and the Projects section clones it, auto-detects the type, builds it (any `Dockerfile`), runs it in a container, health-checks it, and routes your domain — with **zero-config Nixpacks builds** (Node/Next/Python/Go/PHP, no Dockerfile needed), **zero-downtime redeploys**, **deploy-on-push webhooks**, encrypted tokens for private repos, live logs, and stop/remove — plus **managed databases** (Postgres/MySQL/Redis) with credentials auto-injected into your app, and **one-click database backups + restore** (Postgres/MySQL) from the GUI (Phases 3–6 ✅). Still on the roadmap: per-framework recipes (WordPress, static-export), scheduled backups, and preview environments. Throughout these docs, **✅ = works today**, **🚧 = planned**. Full plan + diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+> **Status — read this first.** orxies today is a hardened **reverse proxy + static host + automatic TLS + admin GUI**, and a working **deploy engine**: **connect a Git repo** (or point at a folder), and the Projects section clones it, auto-detects the type, builds it (any `Dockerfile`), runs it in a container, health-checks it, and routes your domain — with **zero-config Nixpacks builds** (Node/Next/Python/Go/PHP, no Dockerfile needed), **one-click updates** (pull the latest commit and refresh, instantly for static sites), **zero-downtime redeploys**, **deploy-on-push webhooks**, encrypted tokens for private repos, live logs, and stop/remove — plus **managed databases** (Postgres/MySQL/Redis) with credentials auto-injected into your app, and **one-click database backups + restore** (Postgres/MySQL) from the GUI (Phases 3–6 ✅). Still on the roadmap: per-framework recipes (WordPress, static-export), scheduled backups, and preview environments. Throughout these docs, **✅ = works today**, **🚧 = planned**. Full plan + diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## The idea
 
@@ -64,12 +64,13 @@ orxies collapses all of that into one hardened GUI: **domains** (add, point, TLS
 ## Features
 
 - **Reverse proxy** with round-robin load balancing across multiple upstreams per site — any `host:port` that speaks HTTP (Docker or not).
-- **Static hosting built in** — serve raw HTML, a portfolio, or a Next.js/Vite static export straight from a folder, with optional SPA fallback. No sidecar server.
+- **Static hosting built in** — serve raw HTML, a portfolio, or a Next.js/Vite static export straight from a folder, with optional SPA fallback. No sidecar server. Directory listings are off and dot-paths (`/.git/`, `/.env`, `/.htpasswd`) are refused, so a site served out of a Git checkout never publishes its own repository — `/.well-known/` stays public.
 - **Auto Let's Encrypt** via [`certmagic`](https://github.com/caddyserver/certmagic) — same library Caddy uses in production. Auto-renewal, OCSP stapling, ACME http-01.
 - **Live traffic dashboard** — per-site requests/min, bytes out, p50/p95/p99 latency, error rate. Polls every 3s.
 - **Host health monitor** — a **System** page with live CPU / memory / swap / disk / load meters (reads `/proc`, so real numbers on the Linux host).
 - **Guided setup** — the site form suggests a free loopback port and lists which ports are already taken (from configured sites, running projects, and actual host listeners), so you don't have to guess.
 - **Expandable site rows** — click any domain to expand it inline and see exactly what's serving it (upstream/static folder, owning project, aliases, TLS, options, live latency).
+- **One-click update** — pushed a change to your repo? Hit **Update** on the project (or let the push webhook do it) and orxies pulls the newest commit and puts it live. A **static** site is served straight from its checkout, so the update is a `git pull` plus a routing refresh — no rebuild, no container, no downtime. Anything containerised rebuilds and swaps in behind the same button. Files deleted upstream disappear from the live site too.
 - **One-click rollback** — every project keeps its recent deployments; roll back to a previous build instantly (re-runs the old image, no rebuild), zero-downtime.
 - **Bento dashboard** — a modern, responsive, mobile-friendly UI with loading states, live progress bars on deploys, and self-hosted vector icons (no CDN).
 - **Per-site rate limiting** — token bucket, per source IP. Configurable rps + burst.

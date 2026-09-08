@@ -157,33 +157,12 @@ func (m *Manager) Deploy(ctx context.Context, projectID int64, logW io.Writer) e
 		return err
 	}
 
-	// Git-backed projects: (re)clone into ReposDir and build from there.
-	src := p.SourcePath
-	if p.RepoURL != "" {
-		token := ""
-		if p.TokenEnc != "" && m.Secrets != nil {
-			if t, derr := m.Secrets.Decrypt(p.TokenEnc); derr == nil {
-				token = t
-			}
-		}
-		dir := filepath.Join(m.ReposDir, safeName(p.Name))
-		branch := p.Branch
-		if branch == "" {
-			branch = "default branch"
-		}
-		fmt.Fprintf(logW, "Cloning %s (%s)...\n", p.RepoURL, branch)
-		sha, gerr := gitsource.Sync(ctx, p.RepoURL, p.Branch, token, dir)
-		if gerr != nil {
-			return m.fail(dep, fmt.Errorf("git clone: %w", gerr))
-		}
-		dep.CommitSHA = sha
-		src = dir
-		short := sha
-		if len(short) > 8 {
-			short = short[:8]
-		}
-		fmt.Fprintf(logW, "Checked out %s\n", short)
+	// Git-backed projects: sync into ReposDir and build from there.
+	src, res, gerr := m.syncSource(ctx, p, logW)
+	if gerr != nil {
+		return m.fail(dep, gerr)
 	}
+	dep.CommitSHA = res.SHA
 
 	// Resolve an as-yet-undetected strategy now that we have the source.
 	if p.Strategy == "" || p.Strategy == "auto" {
@@ -202,14 +181,98 @@ func (m *Manager) Deploy(ctx context.Context, projectID int64, logW io.Writer) e
 	return m.finishContainer(ctx, p, dep, src, logW)
 }
 
-func (m *Manager) finishStatic(p *store.Project, dep *store.Deployment, src string) error {
-	site := &config.Site{
-		Domain:  p.Domain,
-		Enabled: true,
-		Root:    src,
-		SPA:     p.RunCmd == "spa", // RunCmd doubles as the SPA flag for static sites
-		TLS:     config.TLSConfig{Auto: false},
+// Update pulls the project's latest source and puts it live with the
+// least work that is correct. A static site's document root IS its
+// checkout, so pulling and reloading the router is the whole job — no
+// rebuild, no container churn, no downtime. Anything containerised needs
+// a new image for new code, so it falls through to a full Deploy.
+func (m *Manager) Update(ctx context.Context, projectID int64, logW io.Writer) error {
+	p, err := m.Store.GetProject(projectID)
+	if err != nil {
+		return err
 	}
+	if p.Strategy != "static" {
+		fmt.Fprintf(logW, "Strategy %q needs a rebuild to pick up new code — running a full deploy.\n", p.Strategy)
+		return m.Deploy(ctx, projectID, logW)
+	}
+
+	dep := &store.Deployment{ProjectID: p.ID, Status: store.StatusBuilding}
+	if err := m.Store.CreateDeployment(dep); err != nil {
+		return err
+	}
+	src, res, serr := m.syncSource(ctx, p, logW)
+	if serr != nil {
+		return m.fail(dep, serr)
+	}
+	dep.CommitSHA = res.SHA
+	if p.RepoURL == "" {
+		fmt.Fprintf(logW, "No Git repo on this project — refreshing the route for %s\n", src)
+	}
+	fmt.Fprintf(logW, "Refreshing static site for %s\n", p.Domain)
+	return m.finishStatic(p, dep, src)
+}
+
+// syncSource resolves the directory to deploy from, pulling the latest
+// commit first for Git-backed projects. Projects sourced from a local
+// path are used in place.
+func (m *Manager) syncSource(ctx context.Context, p *store.Project, logW io.Writer) (string, gitsource.Result, error) {
+	if p.RepoURL == "" {
+		return p.SourcePath, gitsource.Result{}, nil
+	}
+	token := ""
+	if p.TokenEnc != "" && m.Secrets != nil {
+		if t, derr := m.Secrets.Decrypt(p.TokenEnc); derr == nil {
+			token = t
+		}
+	}
+	label := p.Branch
+	if label == "" {
+		label = "default branch"
+	}
+	fmt.Fprintf(logW, "Syncing %s (%s)...\n", p.RepoURL, label)
+
+	dir := filepath.Join(m.ReposDir, safeName(p.Name))
+	res, err := gitsource.SyncResult(ctx, p.RepoURL, p.Branch, token, dir)
+	if err != nil {
+		return "", res, fmt.Errorf("git sync: %w", err)
+	}
+	switch {
+	case res.Cloned:
+		fmt.Fprintf(logW, "Cloned %s at %s\n", res.Branch, shortSHA(res.SHA))
+	case res.Changed():
+		fmt.Fprintf(logW, "Pulled %s → %s on %s\n", shortSHA(res.PrevSHA), shortSHA(res.SHA), res.Branch)
+	default:
+		fmt.Fprintf(logW, "Already up to date at %s on %s\n", shortSHA(res.SHA), res.Branch)
+	}
+	return dir, res, nil
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
+}
+
+// siteFor returns the site config a project's domain already has on
+// disk, so rewriting the route on every deploy keeps options an operator
+// set by hand — TLS, aliases, rate limits, custom headers — instead of
+// silently resetting them. The bool reports whether this is a brand-new
+// site (nothing on disk yet).
+func (m *Manager) siteFor(domain string) (*config.Site, bool) {
+	if s, err := config.LoadSite(m.SitesDir, config.SiteFilename(domain)); err == nil && s != nil {
+		s.Domain = domain
+		return s, false
+	}
+	return &config.Site{Domain: domain}, true
+}
+
+func (m *Manager) finishStatic(p *store.Project, dep *store.Deployment, src string) error {
+	site, _ := m.siteFor(p.Domain)
+	site.Enabled = true
+	site.Root = src
+	site.SPA = p.RunCmd == "spa" // RunCmd doubles as the SPA flag for static sites
+	site.Upstreams = nil         // a static root replaces any earlier upstream
 	if _, err := config.SaveSite(m.SitesDir, site); err != nil {
 		return m.fail(dep, err)
 	}
@@ -272,12 +335,12 @@ func (m *Manager) runImage(ctx context.Context, p *store.Project, dep *store.Dep
 	}
 
 	// Flip the route to the new container, then drain older ones.
-	site := &config.Site{
-		Domain:    p.Domain,
-		Enabled:   true,
-		Upstreams: []string{fmt.Sprintf("127.0.0.1:%d", port)},
-		WebSocket: true,
-		TLS:       config.TLSConfig{Auto: false},
+	site, fresh := m.siteFor(p.Domain)
+	site.Enabled = true
+	site.Upstreams = []string{fmt.Sprintf("127.0.0.1:%d", port)}
+	site.Root = "" // proxying now; drop any earlier static root
+	if fresh {
+		site.WebSocket = true
 	}
 	if _, err := config.SaveSite(m.SitesDir, site); err != nil {
 		return m.fail(dep, err)

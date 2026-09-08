@@ -217,6 +217,8 @@ func (s *Server) handleProjectItem(w http.ResponseWriter, r *http.Request) {
 		switch parts[1] {
 		case "deploy":
 			s.actionDeploy(w, r, p)
+		case "update":
+			s.actionUpdate(w, r, p)
 		case "stop":
 			s.actionSimple(w, r, p, "project.stop", func(ctx context.Context) error { return s.Deploy.Stop(ctx, p.ID) }, "/projects/"+parts[0])
 		case "remove":
@@ -328,6 +330,16 @@ func (s *Server) actionDeploy(w http.ResponseWriter, r *http.Request, p *store.P
 	http.Redirect(w, r, "/projects/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
 }
 
+// actionUpdate pulls the newest commit and refreshes the live site.
+func (s *Server) actionUpdate(w http.ResponseWriter, r *http.Request, p *store.Project) {
+	if !s.postCSRF(w, r) {
+		return
+	}
+	s.TriggerUpdate(p.ID)
+	s.audit(r, s.user(r), "project.update", p.Name, "started")
+	http.Redirect(w, r, "/projects/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
+}
+
 func (s *Server) actionRollback(w http.ResponseWriter, r *http.Request, p *store.Project) {
 	if !s.postCSRF(w, r) {
 		return
@@ -355,22 +367,42 @@ func (s *Server) actionRollback(w http.ResponseWriter, r *http.Request, p *store
 	http.Redirect(w, r, "/projects/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
 }
 
-// TriggerDeploy starts an async deploy for a project (shared by the GUI
-// deploy button and by push webhooks). No-op if one is already running.
+// TriggerDeploy starts an async full deploy (sync source, build, run,
+// route). No-op if one is already running.
 func (s *Server) TriggerDeploy(id int64) {
+	s.trigger(id, "deploy", func(ctx context.Context, w io.Writer) error {
+		return s.Deploy.Deploy(ctx, id, w)
+	})
+}
+
+// TriggerUpdate starts an async source update: pull the newest commit
+// and refresh the live site. Static sites are served straight from their
+// checkout, so this is all they need; other strategies fall through to a
+// full rebuild inside the deploy manager. Shared by the GUI's Update
+// button and by push webhooks.
+func (s *Server) TriggerUpdate(id int64) {
+	s.trigger(id, "update", func(ctx context.Context, w io.Writer) error {
+		return s.Deploy.Update(ctx, id, w)
+	})
+}
+
+// trigger runs one long job for a project in the background, streaming
+// into its log buffer. No-op while that project already has one running.
+func (s *Server) trigger(id int64, label string, fn func(context.Context, io.Writer) error) {
 	if s.isDeploying(id) {
 		return
 	}
 	lb := s.logFor(id)
 	lb.reset()
-	io.WriteString(lb, "Starting deploy...\n")
+	io.WriteString(lb, "Starting "+label+"...\n")
 	s.setDeploying(id, true)
 	go func() {
 		defer s.setDeploying(id, false)
-		if err := s.Deploy.Deploy(context.Background(), id, lb); err != nil {
-			io.WriteString(lb, "\n=== DEPLOY FAILED: "+err.Error()+" ===\n")
+		up := strings.ToUpper(label)
+		if err := fn(context.Background(), lb); err != nil {
+			io.WriteString(lb, "\n=== "+up+" FAILED: "+err.Error()+" ===\n")
 		} else {
-			io.WriteString(lb, "\n=== DEPLOY OK ===\n")
+			io.WriteString(lb, "\n=== "+up+" OK ===\n")
 		}
 	}()
 }

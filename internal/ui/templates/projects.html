@@ -29,7 +29,15 @@
             {{else if eq .Status "failed"}}<span class="badge warn">failed</span>
             {{else}}<span class="badge muted">{{.Status}}</span>{{end}}
           </td>
-          <td class="actions"><a class="btn small" href="/projects/{{.ID}}">{{icon "arrow-right"}} Open</a></td>
+          <td class="actions">
+            {{if .RepoURL}}
+            <form method="post" action="/projects/{{.ID}}/update" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="btn small" type="submit" {{if .Deploying}}disabled{{end}}>{{icon "rotate"}} Update</button>
+            </form>
+            {{end}}
+            <a class="btn small" href="/projects/{{.ID}}">{{icon "arrow-right"}} Open</a>
+          </td>
         </tr>
         {{else}}
         <tr><td colspan="5" class="empty">

@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -16,25 +17,54 @@ import (
 //   - Path traversal is prevented by http.Dir (which cleans and rejects
 //     "..") and, on the SPA path, by re-rooting the cleaned request path
 //     under root before touching the filesystem.
+//   - Dot-segments are refused (see hiddenPath) so a site served out of
+//     a Git checkout never hands over its .git directory.
 //
 // If spa is true, any request that doesn't resolve to a real file falls
 // back to index.html — the behavior single-page apps and Next.js/Vite
 // static exports need for client-side routing.
 func staticHandler(root string, spa bool) http.Handler {
 	fs := http.FileServer(noListDir{http.Dir(root)})
-	if !spa {
-		return fs
+	inner := http.Handler(fs)
+	if spa {
+		index := filepath.Join(root, "index.html")
+		inner = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Re-root the cleaned request path so "../" can't escape root.
+			rel := filepath.Clean("/" + r.URL.Path)
+			if st, err := os.Stat(filepath.Join(root, rel)); err == nil && !st.IsDir() {
+				fs.ServeHTTP(w, r) // real asset (css/js/img) — let FileServer do it
+				return
+			}
+			http.ServeFile(w, r, index) // deep link → hand back the app shell
+		})
 	}
-	index := filepath.Join(root, "index.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Re-root the cleaned request path so "../" can't escape root.
-		rel := filepath.Clean("/" + r.URL.Path)
-		if st, err := os.Stat(filepath.Join(root, rel)); err == nil && !st.IsDir() {
-			fs.ServeHTTP(w, r) // real asset (css/js/img) — let FileServer do it
+		if hiddenPath(path.Clean("/" + r.URL.Path)) {
+			http.NotFound(w, r) // 404, not 403 — don't confirm what exists
 			return
 		}
-		http.ServeFile(w, r, index) // deep link → hand back the app shell
+		inner.ServeHTTP(w, r)
 	})
+}
+
+// hiddenPath reports whether any segment of a cleaned URL path starts
+// with a dot. orxies deploys a static project straight from its Git
+// checkout, so without this the whole repository — history included —
+// would be readable at /.git/, along with any stray .env or .htpasswd
+// in the tree. The one exception is /.well-known/, which exists to be
+// public (security.txt, apple-app-site-association); ACME http-01
+// challenges never reach here, the issuer's handler answers those
+// before the router sees the request.
+func hiddenPath(p string) bool {
+	if strings.HasPrefix(p, "/.well-known/") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if len(seg) > 1 && seg[0] == '.' {
+			return true
+		}
+	}
+	return false
 }
 
 // noListDir wraps an http.FileSystem so opening a directory that has no

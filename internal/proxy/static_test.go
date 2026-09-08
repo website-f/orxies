@@ -91,3 +91,60 @@ func TestRouterServesRelativeStaticRoot(t *testing.T) {
 		t.Errorf("router static (relative root) = %d %q, want 200 portfolio", rec.Code, rec.Body.String())
 	}
 }
+
+// A static project is served straight out of its Git checkout, so the
+// repository itself must never be readable over HTTP.
+func TestStaticHidesDotPaths(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "index.html"), "<h1>home</h1>")
+	writeFile(t, filepath.Join(root, ".git", "config"), "[remote \"origin\"]")
+	writeFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main")
+	writeFile(t, filepath.Join(root, ".env"), "SECRET=hunter2")
+	writeFile(t, filepath.Join(root, "assets", ".htpasswd"), "user:hash")
+	writeFile(t, filepath.Join(root, ".well-known", "security.txt"), "Contact: mailto:a@b.c")
+
+	for _, spa := range []bool{false, true} {
+		h := staticHandler(root, spa)
+		for _, p := range []string{"/.git/config", "/.git/HEAD", "/.env", "/assets/.htpasswd"} {
+			rec := serve(h, p)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("spa=%v GET %s = %d, want 404", spa, p, rec.Code)
+			}
+			for _, leak := range []string{"origin", "refs/heads", "hunter2", "user:hash"} {
+				if strings.Contains(rec.Body.String(), leak) {
+					t.Errorf("spa=%v GET %s leaked %q", spa, p, leak)
+				}
+			}
+		}
+		// /.well-known/ is public by design and must still be served.
+		if rec := serve(h, "/.well-known/security.txt"); rec.Code != 200 ||
+			!strings.Contains(rec.Body.String(), "mailto:a@b.c") {
+			t.Errorf("spa=%v GET /.well-known/security.txt = %d %q, want the file",
+				spa, rec.Code, rec.Body.String())
+		}
+		// Normal content is unaffected.
+		if rec := serve(h, "/"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "home") {
+			t.Errorf("spa=%v GET / = %d %q, want 200 home", spa, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestHiddenPath(t *testing.T) {
+	cases := map[string]bool{
+		"/":                               false,
+		"/index.html":                     false,
+		"/assets/app.css":                 false,
+		"/.well-known/security.txt":       false,
+		"/.well-known/acme-challenge/tok": false,
+		"/.git":                           true,
+		"/.git/config":                    true,
+		"/deep/nested/.git/HEAD":          true,
+		"/.env":                           true,
+		"/sub/.hidden":                    true,
+	}
+	for p, want := range cases {
+		if got := hiddenPath(p); got != want {
+			t.Errorf("hiddenPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}

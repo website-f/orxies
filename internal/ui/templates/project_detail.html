@@ -13,14 +13,22 @@
     {{if .Deployment}}
     <div class="stat"><div class="stat-label">host port</div><div class="stat-value">{{if .Deployment.HostPort}}{{.Deployment.HostPort}}{{else}}—{{end}}</div></div>
     <div class="stat"><div class="stat-label">image</div><div class="stat-value mono small">{{if .Deployment.ImageRef}}{{.Deployment.ImageRef}}{{else}}—{{end}}</div></div>
+    <div class="stat"><div class="stat-label">live commit</div><div class="stat-value mono small">{{if .Deployment.CommitSHA}}{{slice .Deployment.CommitSHA 0 8}}{{else}}—{{end}}</div></div>
     {{end}}
   </div>
 
   {{if .Project.Domain}}<p class="muted small">{{icon "arrow-right"}} orxies routes <span class="mono">{{.Project.Domain}}</span> to this app automatically{{if and .Deployment .Deployment.HostPort}} (→ <span class="mono">127.0.0.1:{{.Deployment.HostPort}}</span>){{end}} — no manual Site needed. TLS is issued on first HTTPS request once DNS points here.</p>{{end}}
+  {{if .Project.RepoURL}}<p class="muted small">{{icon "rotate"}} <strong>Update</strong> pulls the newest commit from <span class="mono">{{.Project.RepoURL}}</span>{{if .Project.Branch}} (<span class="mono">{{.Project.Branch}}</span>){{end}} and refreshes what is served. {{if eq .Project.Strategy "static"}}Static files go live straight from the checkout — no rebuild, no downtime.{{else}}A {{.Project.Strategy}} project is rebuilt and swapped in with zero downtime.{{end}}</p>{{end}}
   <div class="actions-row">
+    {{if .Project.RepoURL}}
+    <form method="post" action="/projects/{{.Project.ID}}/update" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn primary" type="submit">{{icon "rotate"}} Update (pull latest)</button>
+    </form>
+    {{end}}
     <form method="post" action="/projects/{{.Project.ID}}/deploy" class="inline">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="btn primary" type="submit">{{icon "arrow-right"}} Deploy</button>
+      <button class="btn{{if not .Project.RepoURL}} primary{{end}}" type="submit">{{icon "arrow-right"}} {{if .Project.RepoURL}}Full redeploy{{else}}Deploy{{end}}</button>
     </form>
     <form method="post" action="/projects/{{.Project.ID}}/stop" class="inline">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">

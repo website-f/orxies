@@ -403,8 +403,9 @@ func cmdServe(args []string) {
 
 	// Public deploy-on-push webhook sits in front of the reverse-proxy
 	// router on the edge listeners (falls through to routing for all
-	// other paths).
-	edge := webhook.New(db, uiSrv.TriggerDeploy, router)
+	// other paths). It runs the update path: static sites just pull the
+	// new commit and refresh, anything containerised still rebuilds.
+	edge := webhook.New(db, uiSrv.TriggerUpdate, router)
 
 	deps := &server.Deps{
 		Global:           g,

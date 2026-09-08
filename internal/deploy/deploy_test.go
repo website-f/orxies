@@ -305,6 +305,178 @@ func TestDeployStatic(t *testing.T) {
 	}
 }
 
+// makeStaticGitRepo builds a git repo holding a one-page static site
+// and returns its path plus HEAD.
+func makeStaticGitRepo(t *testing.T, body string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, _ := repo.Worktree()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte(body), 0o644)
+	wt.Add("index.html")
+	h, err := wt.Commit("init", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@example.com", When: time.Unix(1700000000, 0)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, h.String()
+}
+
+// commitTo writes body to name in an existing repo and commits it.
+func commitTo(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, _ := repo.Worktree()
+	os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
+	if _, err := wt.Add(name); err != nil {
+		t.Fatal(err)
+	}
+	h, err := wt.Commit("update "+name, &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@example.com", When: time.Unix(1700000300, 0)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h.String()
+}
+
+// Update on a static git project pulls the newest commit and serves it —
+// no agent involved, no container, and the files on disk actually change.
+func TestUpdateStaticPullsLatest(t *testing.T) {
+	db := openStore(t)
+	repoDir, firstSHA := makeStaticGitRepo(t, "<h1>v1</h1>")
+	sites, repos := t.TempDir(), t.TempDir()
+	reloads := 0
+	m := &Manager{Store: db, SitesDir: sites, ReposDir: repos, OnChange: func() { reloads++ }}
+
+	p := &store.Project{Name: "site", RepoURL: repoDir, Strategy: "static", Domain: "site.test"}
+	if err := db.CreateProject(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Deploy(context.Background(), p.ID, io.Discard); err != nil {
+		t.Fatalf("first deploy: %v", err)
+	}
+	checkout := filepath.Join(repos, "site")
+	if b, _ := os.ReadFile(filepath.Join(checkout, "index.html")); string(b) != "<h1>v1</h1>" {
+		t.Fatalf("initial content = %q", b)
+	}
+	d1, _ := db.LatestDeployment(p.ID)
+	if d1.CommitSHA != firstSHA {
+		t.Fatalf("commit = %s, want %s", d1.CommitSHA, firstSHA)
+	}
+
+	newSHA := commitTo(t, repoDir, "index.html", "<h1>v2</h1>")
+	before := reloads
+	var log strings.Builder
+	if err := m.Update(context.Background(), p.ID, &log); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	if b, _ := os.ReadFile(filepath.Join(checkout, "index.html")); string(b) != "<h1>v2</h1>" {
+		t.Errorf("content after update = %q, want <h1>v2</h1>", b)
+	}
+	d2, _ := db.LatestDeployment(p.ID)
+	if d2.ID == d1.ID {
+		t.Error("update did not record a new deployment")
+	}
+	if d2.CommitSHA != newSHA {
+		t.Errorf("deployment commit = %s, want %s", d2.CommitSHA, newSHA)
+	}
+	if d2.Status != store.StatusRunning {
+		t.Errorf("status = %s, want running", d2.Status)
+	}
+	if d2.ContainerID != "" || d2.ImageRef != "" {
+		t.Errorf("static update built a container: %+v", d2)
+	}
+	if reloads == before {
+		t.Error("router was not reloaded after the update")
+	}
+	if !strings.Contains(log.String(), "Pulled") {
+		t.Errorf("log did not report a pull: %s", log.String())
+	}
+}
+
+// Updating a static project must not reset site options an operator set
+// by hand — TLS above all, or the site drops to plain HTTP on a refresh.
+func TestUpdateStaticPreservesSiteSettings(t *testing.T) {
+	db := openStore(t)
+	repoDir, _ := makeStaticGitRepo(t, "<h1>v1</h1>")
+	sites, repos := t.TempDir(), t.TempDir()
+	m := &Manager{Store: db, SitesDir: sites, ReposDir: repos, OnChange: func() {}}
+
+	p := &store.Project{Name: "tls", RepoURL: repoDir, Strategy: "static", Domain: "tls.test"}
+	if err := db.CreateProject(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Deploy(context.Background(), p.ID, io.Discard); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	// Operator turns on auto-TLS and adds an alias via the Sites screen.
+	site, err := config.LoadSite(sites, config.SiteFilename("tls.test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	site.TLS.Auto = true
+	site.Aliases = []string{"www.tls.test"}
+	site.HTTPToHTTPS = true
+	if _, err := config.SaveSite(sites, site); err != nil {
+		t.Fatal(err)
+	}
+
+	commitTo(t, repoDir, "index.html", "<h1>v2</h1>")
+	if err := m.Update(context.Background(), p.ID, io.Discard); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got, err := config.LoadSite(sites, config.SiteFilename("tls.test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TLS.Auto {
+		t.Error("update reset TLS.Auto — the site would fall back to plain HTTP")
+	}
+	if !got.HTTPToHTTPS {
+		t.Error("update reset HTTPToHTTPS")
+	}
+	if len(got.Aliases) != 1 || got.Aliases[0] != "www.tls.test" {
+		t.Errorf("update dropped aliases: %v", got.Aliases)
+	}
+	if got.Root == "" {
+		t.Error("update cleared the static root")
+	}
+}
+
+// A containerised project has no shortcut: Update must rebuild and swap.
+func TestUpdateContainerRebuilds(t *testing.T) {
+	db := openStore(t)
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "Dockerfile"), []byte("FROM scratch"), 0o644)
+	sites := t.TempDir()
+	fa := newFakeAgent()
+	defer fa.closeAll()
+	m := &Manager{Store: db, Agent: fa, SitesDir: sites, OnChange: func() {}}
+
+	p := &store.Project{Name: "svc", SourcePath: src, Strategy: "dockerfile", Domain: "svc.test", AppPort: 80}
+	if err := db.CreateProject(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Update(context.Background(), p.ID, io.Discard); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	d, _ := db.LatestDeployment(p.ID)
+	if d.Status != store.StatusRunning || d.ImageRef == "" || d.ContainerID == "" {
+		t.Fatalf("update did not build+run a container: %+v", d)
+	}
+}
+
 func TestDeployContainerAndRedeploy(t *testing.T) {
 	db := openStore(t)
 	src := t.TempDir()
