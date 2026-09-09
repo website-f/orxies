@@ -127,7 +127,9 @@ func (r *Router) Reload(sites []*config.Site) {
 			rt.rp = r.buildReverseProxy(rt)
 		}
 		if s.RateLimit.Enabled {
-			rt.limiter = NewLimiter(s.RateLimit.RPS, s.RateLimit.Burst)
+			rt.limiter = NewLimiter(s.RateLimit.RPS, s.RateLimit.Burst).
+				WithGlobal(s.RateLimit.GlobalRPS, s.RateLimit.GlobalBurst).
+				WithMaxInFlight(s.RateLimit.MaxInFlight)
 		}
 		next[s.Domain] = rt
 		for _, a := range s.Aliases {
@@ -253,10 +255,25 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if rt.limiter != nil {
 		ip := ClientIP(req, r.trustHeaders)
 		if !rt.limiter.Allow(ip) {
+			w.Header().Set("Retry-After", "10")
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			r.recordMetric(site.Domain, http.StatusTooManyRequests, 0, time.Since(start))
 			return
 		}
+
+		// Concurrency gate. Rate limits bound arrivals; this bounds how
+		// many requests are in the upstream at once, which is the limit
+		// that actually protects a worker pool. Shed with 503 (not 429)
+		// because the site is temporarily at capacity rather than the
+		// client being abusive.
+		release, ok := rt.limiter.Acquire()
+		if !ok {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			r.recordMetric(site.Domain, http.StatusServiceUnavailable, 0, time.Since(start))
+			return
+		}
+		defer release()
 	}
 
 	// HSTS is set here, not in the merged header map, because it depends

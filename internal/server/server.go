@@ -55,11 +55,26 @@ func Run(ctx context.Context, d *Deps) error {
 	}
 	httpHandler := d.ACME.Issuer().HTTPChallengeHandler(edge)
 
+	// NOTE ON TIMEOUTS
+	// ReadHeaderTimeout is the Slowloris defence: headers must arrive
+	// within the window or the connection is dropped. IdleTimeout reaps
+	// kept-alive connections that go quiet.
+	//
+	// ReadTimeout / WriteTimeout are deliberately NOT set on the public
+	// listeners. Go's versions are absolute deadlines for the entire
+	// request and response, not inactivity timers, so any value low
+	// enough to matter would also kill legitimate long transfers — the
+	// Reverb WebSocket upgrade on ws.*, Immich video uploads and photo
+	// downloads, and live-stream polling. MaxHeaderBytes bounds the
+	// memory a header flood can pin instead (default is 1MB per conn).
+	const maxHeaderBytes = 64 << 10
+
 	httpSrv := &http.Server{
 		Addr:              d.Global.HTTPAddr,
 		Handler:           httpHandler,
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	// certmagic's TLSConfig sets GetCertificate, plus NextProtos for
@@ -72,6 +87,7 @@ func Run(ctx context.Context, d *Deps) error {
 		TLSConfig:         tlsCfg,
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	// Harden the admin UI: cap body size, enforce the optional source-IP
@@ -88,12 +104,13 @@ func Run(ctx context.Context, d *Deps) error {
 		Handler:           adminHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	var (
-		wg     sync.WaitGroup
-		errCh  = make(chan error, 3)
-		serve  = func(name string, run func() error) {
+		wg    sync.WaitGroup
+		errCh = make(chan error, 3)
+		serve = func(name string, run func() error) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

@@ -147,13 +147,37 @@ type TLSConfig struct {
 	KeyFile  string `yaml:"key_file"`
 }
 
-// RateLimitConfig — leaky-bucket per source IP.
+// RateLimitConfig — load shedding for one site.
+//
+// Three layers, because each covers a failure the others don't:
+//
+//   - RPS/Burst are PER SOURCE IP. Good against one noisy host, useless
+//     against a distributed flood: 5,000 hosts each staying under the
+//     per-IP limit still add up to a flood, and every request passes.
+//   - GlobalRPS/GlobalBurst cap the WHOLE SITE, which is what actually
+//     holds when an attack is spread across thousands of addresses.
+//   - MaxInFlight caps SIMULTANEOUS requests. This is usually the one
+//     that saves the app: the backends here run ~8 Octane workers over
+//     a 151-connection MySQL pool, so it's concurrency, not arrival
+//     rate, that exhausts them. Shedding past a ceiling keeps the site
+//     responding instead of collapsing.
+//
+// None of this stops a volumetric attack — that saturates the link
+// before the proxy sees a packet and must be absorbed upstream.
 type RateLimitConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// Sustained requests per second.
+	// Sustained requests per second, per source IP.
 	RPS int `yaml:"rps"`
-	// Burst capacity above sustained.
+	// Burst capacity above sustained, per source IP.
 	Burst int `yaml:"burst"`
+	// GlobalRPS is a site-wide sustained ceiling across ALL clients.
+	// 0 disables it.
+	GlobalRPS int `yaml:"global_rps"`
+	// GlobalBurst is burst capacity above the site-wide ceiling.
+	GlobalBurst int `yaml:"global_burst"`
+	// MaxInFlight caps concurrent in-flight requests for the site.
+	// 0 disables it.
+	MaxInFlight int `yaml:"max_in_flight"`
 }
 
 // AllDomains returns Domain + Aliases.
