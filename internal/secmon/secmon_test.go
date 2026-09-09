@@ -220,6 +220,75 @@ func TestClassifyHijacksFlagsBruteForceSuccess(t *testing.T) {
 	}
 }
 
+// Regression: an admin who mistypes a password once and then logs in
+// legitimately must NOT be graded "high". Running against a real host
+// log, a 1-failure threshold flagged every genuine session as a
+// probable takeover and drowned the panel.
+func TestClassifyHijacksToleratesMistypedPassword(t *testing.T) {
+	ip := "118.101.146.127"
+	stats := map[string]*IPStat{ip: {IP: ip, Failures: 1}}
+	var successes []Event
+	base := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 17; i++ {
+		successes = append(successes, Event{
+			IP: ip, Kind: KindAcceptedPassword, User: "root",
+			Time: base.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	h := classifyHijacks(successes, stats)
+
+	// Grouped into a single row, not 17.
+	if len(h) != 1 {
+		t.Fatalf("got %d rows, want 1 grouped row", len(h))
+	}
+	if h[0].Count != 17 {
+		t.Errorf("Count = %d, want 17", h[0].Count)
+	}
+	if h[0].Severity != "medium" {
+		t.Errorf("severity = %q, want medium — one typo is not a brute-force", h[0].Severity)
+	}
+	if h[0].Last.Before(h[0].First) {
+		t.Error("Last should be at or after First")
+	}
+}
+
+// Grouping must not merge distinct principals.
+func TestClassifyHijacksGroupsByPrincipal(t *testing.T) {
+	stats := map[string]*IPStat{
+		"1.1.1.1": {IP: "1.1.1.1"},
+		"2.2.2.2": {IP: "2.2.2.2"},
+	}
+	successes := []Event{
+		{IP: "1.1.1.1", Kind: KindAcceptedPassword, User: "root", Time: time.Now()},
+		{IP: "1.1.1.1", Kind: KindAcceptedPassword, User: "deploy", Time: time.Now()},
+		{IP: "2.2.2.2", Kind: KindAcceptedPassword, User: "root", Time: time.Now()},
+	}
+	if h := classifyHijacks(successes, stats); len(h) != 3 {
+		t.Fatalf("got %d rows, want 3 distinct (ip,user) groups", len(h))
+	}
+}
+
+// High-severity rows must sort above medium ones so the row that
+// matters is the first one read.
+func TestClassifyHijacksOrdersHighFirst(t *testing.T) {
+	stats := map[string]*IPStat{
+		"9.9.9.9": {IP: "9.9.9.9"},                 // clean -> medium
+		"8.8.8.8": {IP: "8.8.8.8", Failures: 4000}, // brute force -> high
+	}
+	now := time.Now()
+	successes := []Event{
+		{IP: "9.9.9.9", Kind: KindAcceptedPassword, User: "root", Time: now},                 // newer
+		{IP: "8.8.8.8", Kind: KindAcceptedPassword, User: "root", Time: now.Add(-time.Hour)}, // older but high
+	}
+	h := classifyHijacks(successes, stats)
+	if len(h) != 2 {
+		t.Fatalf("got %d rows, want 2", len(h))
+	}
+	if h[0].Severity != "high" {
+		t.Errorf("first row severity = %q, want high (severity outranks recency)", h[0].Severity)
+	}
+}
+
 // A clean key login must never be flagged — false alarms train
 // operators to ignore the page.
 func TestClassifyHijacksIgnoresCleanKeyLogin(t *testing.T) {

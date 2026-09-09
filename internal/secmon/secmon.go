@@ -172,9 +172,17 @@ type Snapshot struct {
 	Hourly []uint32
 }
 
-// Hijack is a successful login flagged as suspicious, with the reason.
+// Hijack is a group of successful logins flagged as suspicious.
+//
+// Logins are grouped by (IP, user, method) rather than listed one per
+// row: a normal admin racks up dozens of legitimate sessions a day, and
+// one row each would bury the single row that actually matters.
 type Hijack struct {
-	Event
+	IP            string
+	User          string
+	Kind          Kind
+	Count         int
+	First, Last   time.Time
 	Reason        string
 	Severity      string // "high" | "medium"
 	PriorFailures int
@@ -378,45 +386,91 @@ func (r *Reader) build() Snapshot {
 	return s
 }
 
-// classifyHijacks flags successful logins that deserve attention.
+// BruteForceFailureThreshold is how many failed attempts an address
+// must have produced before a success from it is treated as a probable
+// brute-force landing.
+//
+// It is deliberately not 1. A real admin mistypes a password, then gets
+// it right; treating that as a takeover flags every legitimate session
+// and the panel becomes noise. Twenty failures is well beyond fumbling
+// and far below what a real brute-force needs.
+const BruteForceFailureThreshold = 20
+
+// classifyHijacks flags successful logins that deserve attention,
+// grouped by (IP, user, method).
 //
 // The rules encode what actually matters on a hardened box:
-//   - a password login is itself an anomaly once key-only auth is
-//     enforced, because it should be impossible;
-//   - a success from an address that also produced many failures is
-//     the classic signature of a brute-force that finally landed.
+//   - a success from an address that also produced *many* failures is
+//     the classic signature of a brute-force that finally landed;
+//   - a password login is a milder anomaly once key-only auth is
+//     enforced, because it should be impossible at all.
 //
 // Everything else is reported as a plain success, not an alert. False
 // alarms train operators to ignore the page.
 func classifyHijacks(successes []Event, stats map[string]*IPStat) []Hijack {
-	var out []Hijack
+	type key struct {
+		ip, user string
+		kind     Kind
+	}
+	idx := map[key]*Hijack{}
+	var order []key
+
 	for _, e := range successes {
-		st := stats[e.IP]
 		prior := 0
-		if st != nil {
+		if st := stats[e.IP]; st != nil {
 			prior = st.Failures + st.InvalidUsers
 		}
+
+		var severity, reason string
 		switch {
-		case prior >= 20:
-			out = append(out, Hijack{
-				Event: e, PriorFailures: prior, Severity: "high",
-				Reason: "login succeeded from an address with " + itoa(prior) +
-					" failed attempts — possible brute-force success",
-			})
-		case e.Kind == KindAcceptedPassword && prior > 0:
-			out = append(out, Hijack{
-				Event: e, PriorFailures: prior, Severity: "high",
-				Reason: "password login from an address that also failed " + itoa(prior) +
-					" time(s)",
-			})
+		case prior >= BruteForceFailureThreshold:
+			severity = "high"
+			reason = "succeeded from an address with " + itoa(prior) +
+				" failed attempts — possible brute-force success"
 		case e.Kind == KindAcceptedPassword:
-			out = append(out, Hijack{
-				Event: e, PriorFailures: prior, Severity: "medium",
-				Reason: "password login (expected to be impossible when key-only auth is enforced)",
-			})
+			severity = "medium"
+			reason = "password login — should be impossible once key-only auth is enforced"
+			if prior > 0 {
+				reason += " (" + itoa(prior) + " failed attempt(s) from this address)"
+			}
+		default:
+			continue // a clean key login is not an alert
+		}
+
+		k := key{e.IP, e.User, e.Kind}
+		h := idx[k]
+		if h == nil {
+			h = &Hijack{
+				IP: e.IP, User: e.User, Kind: e.Kind,
+				First: e.Time, Last: e.Time,
+				Severity: severity, Reason: reason, PriorFailures: prior,
+			}
+			idx[k] = h
+			order = append(order, k)
+		}
+		h.Count++
+		if !e.Time.IsZero() {
+			if h.First.IsZero() || e.Time.Before(h.First) {
+				h.First = e.Time
+			}
+			if e.Time.After(h.Last) {
+				h.Last = e.Time
+			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+
+	out := make([]Hijack, 0, len(order))
+	for _, k := range order {
+		out = append(out, *idx[k])
+	}
+	// Highest severity first, then most recent.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if (a.Severity == "high") != (b.Severity == "high") {
+			return a.Severity == "high"
+		}
+		return a.Last.After(b.Last)
+	})
 	return out
 }
 

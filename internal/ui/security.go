@@ -73,7 +73,9 @@ type secEventRow struct {
 }
 
 type secHijackRow struct {
-	Time     string
+	Last     string
+	Count    string
+	Method   string
 	User     string
 	IP       string
 	Reason   string
@@ -137,7 +139,9 @@ func (s *Server) secView() secView {
 			v.HighCount++
 		}
 		v.Hijacks = append(v.Hijacks, secHijackRow{
-			Time:     fmtTime(h.Time),
+			Last:     fmtTime(h.Last),
+			Count:    group(h.Count),
+			Method:   h.Kind.String(),
 			User:     h.User,
 			IP:       h.IP,
 			Reason:   h.Reason,

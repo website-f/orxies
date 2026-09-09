@@ -10,7 +10,10 @@
 
 {{/* ── headline alert ─────────────────────────────────────────── */}}
 {{if .Hijacks}}
-<div class="alert error">{{icon "alert"}}<span><strong>{{len .Hijacks}} login(s) need review.</strong> A successful login from an address that also failed repeatedly is the signature of a brute-force that landed. Confirm each one below is you.</span></div>
+<div class="alert {{if .HighCount}}error{{else}}info{{end}}">{{icon "alert"}}<span>
+  {{if .HighCount}}<strong>{{.HighCount}} source(s) look like a brute-force that landed.</strong> A login succeeding from an address with 20+ failures is the classic signature. Confirm every row below is you.
+  {{else}}<strong>{{len .Hijacks}} source(s) worth a look.</strong> Nothing matches a brute-force signature, but password logins appear below — those should be impossible once key-only auth is enforced.{{end}}
+</span></div>
 {{else if .Available}}
 <div class="alert ok">{{icon "check"}}<span>No suspicious logins in {{.Window}}. Every accepted login came from an address with no failed attempts.</span></div>
 {{end}}
@@ -61,14 +64,16 @@
   <div class="card-header"><h2>{{icon "alert"}} Logins needing review</h2><span class="badge danger">{{.HighCount}} high</span></div>
   <div class="table-wrap">
     <table class="sites">
-      <thead><tr><th>When</th><th>Severity</th><th>User</th><th>Source IP</th><th>Why it was flagged</th></tr></thead>
+      <thead><tr><th>Severity</th><th>Logins</th><th>Method</th><th>User</th><th>Source IP</th><th>Most recent</th><th>Why it was flagged</th></tr></thead>
       <tbody>
         {{range .Hijacks}}
-        <tr class="{{if .High}}row-danger{{end}}">
-          <td class="mono">{{.Time}}</td>
+        <tr class="{{if .High}}row-danger{{else}}row-warn{{end}}">
           <td><span class="badge {{if .High}}danger{{else}}warn{{end}}">{{.Severity}}</span></td>
+          <td class="num">{{.Count}}</td>
+          <td class="mono small">{{.Method}}</td>
           <td class="mono">{{.User}}</td>
           <td class="mono">{{.IP}}</td>
+          <td class="mono small">{{.Last}}</td>
           <td>{{.Reason}}</td>
         </tr>
         {{end}}
