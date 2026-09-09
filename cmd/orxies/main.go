@@ -27,6 +27,7 @@ import (
 	"orxies/internal/deploy"
 	"orxies/internal/metrics"
 	"orxies/internal/proxy"
+	"orxies/internal/secmon"
 	"orxies/internal/secretbox"
 	"orxies/internal/security"
 	"orxies/internal/server"
@@ -340,6 +341,9 @@ func cmdServe(args []string) {
 		DB:            db,
 		Deploy:        deployMgr,
 		Sys:           sysstat.New(*dataDir),
+		SecMon:        newSecMon(g),
+		Global:        g,
+		AuditPath:     filepath.Join(*dataDir, "audit.log"),
 	})
 	if err != nil {
 		fatal("ui: %v", err)
@@ -425,6 +429,23 @@ func cmdServe(args []string) {
 		fatal("server: %v", err)
 	}
 	slog.Info("orxies shutdown complete")
+}
+
+// newSecMon builds the Security page's telemetry reader, or nil when
+// the feature is switched off (which removes the page and its nav
+// entry entirely rather than showing an empty one).
+func newSecMon(g *config.Global) *secmon.Reader {
+	sm := g.SecurityMonitor
+	if !sm.IsEnabled() {
+		return nil
+	}
+	return secmon.NewReader(secmon.Config{
+		AuthLog:     sm.AuthLog,
+		Fail2banLog: sm.Fail2banLog,
+		TailBytes:   sm.TailBytes,
+		MaxEvents:   sm.MaxEvents,
+		CacheTTL:    time.Duration(sm.CacheSeconds) * time.Second,
+	})
 }
 
 func configureLogging(level string) {

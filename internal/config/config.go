@@ -54,6 +54,42 @@ type Global struct {
 	// TLS terminator sits in front of the admin listener so cookies are
 	// never emitted to a plaintext context. Also switches on HSTS.
 	AdminForceSecureCookie bool `yaml:"admin_force_secure_cookie"`
+
+	// SecurityMonitor feeds the Security page.
+	SecurityMonitor SecurityMonitorConfig `yaml:"security_monitor"`
+}
+
+// SecurityMonitorConfig points the Security page at the host logs it
+// reports on. Both paths refer to the location *inside* the container,
+// so they must be bind-mounted read-only (see docker-compose.yml).
+//
+// On Debian/Ubuntu these logs are mode 640 root:adm, so the container
+// also needs the adm group (`group_add: ["4"]`). Without it the page
+// renders an explicit "unreadable" notice naming the fix, rather than
+// empty panels that look like "no attacks".
+type SecurityMonitorConfig struct {
+	// Enabled turns the Security page on. Absent means enabled — a
+	// security dashboard that ships off by default is one nobody looks at.
+	Enabled *bool `yaml:"enabled"`
+	// AuthLog is the sshd/PAM log (Ubuntu/Debian: /var/log/auth.log,
+	// RHEL family: /var/log/secure).
+	AuthLog string `yaml:"auth_log"`
+	// Fail2banLog is fail2ban's log, for ban/unban history.
+	Fail2banLog string `yaml:"fail2ban_log"`
+	// TailBytes caps how much of each log's tail is parsed (default 4MiB).
+	TailBytes int64 `yaml:"tail_bytes"`
+	// MaxEvents caps how many rows each raw log panel shows (default 200).
+	MaxEvents int `yaml:"max_events"`
+	// CacheSeconds is how long one snapshot is reused across polls
+	// (default 15). The page polls, so re-parsing megabytes every time
+	// would be pure waste.
+	CacheSeconds int `yaml:"cache_seconds"`
+}
+
+// IsEnabled reports whether the Security page should be served,
+// treating an absent key as enabled.
+func (c SecurityMonitorConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // Admin is one admin login.
@@ -256,6 +292,15 @@ func (g *Global) applyDefaults() {
 	}
 	if g.HTTPSAddr == "" {
 		g.HTTPSAddr = ":443"
+	}
+	// Default to the Debian/Ubuntu log locations. They are the common
+	// case, and a wrong-but-present path produces a clear "not found"
+	// notice on the page, which is more useful than a blank config.
+	if g.SecurityMonitor.AuthLog == "" {
+		g.SecurityMonitor.AuthLog = "/var/log/auth.log"
+	}
+	if g.SecurityMonitor.Fail2banLog == "" {
+		g.SecurityMonitor.Fail2banLog = "/var/log/fail2ban.log"
 	}
 }
 

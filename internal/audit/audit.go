@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -75,6 +76,33 @@ func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.f.Close()
+}
+
+// Tail returns up to n of the most recent records from the audit log
+// at path, newest first. Used by the Security page to show admin-panel
+// activity — an append-only file nobody reads is only half a control.
+//
+// Malformed lines are skipped rather than failing the read: a truncated
+// final line (a crash mid-write) must not hide the whole history.
+func Tail(path string, n int) ([]Record, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(b), "\n")
+	out := make([]Record, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var rec Record
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out, nil
 }
 
 func clientIP(r *http.Request) string {

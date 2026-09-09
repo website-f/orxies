@@ -23,6 +23,7 @@
     <a href="/sites" class="{{if eq .Active "sites"}}active{{end}}">{{icon "globe"}}Sites</a>
     <a href="/certs" class="{{if eq .Active "certs"}}active{{end}}">{{icon "shield"}}Certificates</a>
     {{if .SysEnabled}}<a href="/system" class="{{if eq .Active "system"}}active{{end}}">{{icon "activity"}}System</a>{{end}}
+    {{if .SecEnabled}}<a href="/security" class="{{if eq .Active "security"}}active{{end}}">{{icon "lock"}}Security</a>{{end}}
     <a href="/logout" class="logout">{{icon "logout"}}Sign out</a>
   </nav>
   <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle light/dark theme">{{icon "sun"}}</button>
@@ -45,6 +46,7 @@
 {{else if eq .ContentTemplate "service-form"}}{{template "service-form" .}}
 {{else if eq .ContentTemplate "service-detail"}}{{template "service-detail" .}}
 {{else if eq .ContentTemplate "system"}}{{template "system" .}}
+{{else if eq .ContentTemplate "security"}}{{template "security" .}}
 {{end}}
 </main>
 <footer class="footer">

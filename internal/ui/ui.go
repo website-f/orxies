@@ -24,6 +24,7 @@ import (
 	"orxies/internal/config"
 	"orxies/internal/deploy"
 	"orxies/internal/metrics"
+	"orxies/internal/secmon"
 	"orxies/internal/store"
 	"orxies/internal/sysstat"
 )
@@ -46,6 +47,9 @@ type Server struct {
 	DB            *store.Store    // platform state (projects/deployments); nil disables Projects
 	Deploy        *deploy.Manager // deployment orchestrator; nil disables Projects
 	Sys           *sysstat.Reader // host health metrics; nil disables the System page
+	SecMon        *secmon.Reader  // SSH/fail2ban telemetry; nil disables the Security page
+	Global        *config.Global  // global config, for the Security posture panel
+	AuditPath     string          // audit log path, so the Security page can show admin activity
 	// ReloadCallback is invoked after the UI mutates a site file —
 	// used to re-trigger the watcher's reload synchronously so the
 	// UI shows the change immediately. Optional.
@@ -116,6 +120,10 @@ func (s *Server) Handler() http.Handler {
 		authed.HandleFunc("/system", s.handleSystem)
 		authed.HandleFunc("/partials/system", s.handleSystemPartial)
 	}
+	if s.SecMon != nil {
+		authed.HandleFunc("/security", s.handleSecurity)
+		authed.HandleFunc("/partials/security", s.handleSecurityPartial)
+	}
 	if s.DB != nil && s.Deploy != nil {
 		authed.HandleFunc("/projects", s.handleProjects)
 		authed.HandleFunc("/projects/new", s.handleProjectNew)
@@ -143,6 +151,7 @@ type baseData struct {
 	CSRF            string // token for forms on this page
 	ProjectsEnabled bool   // whether the Projects/Services sections are enabled
 	SysEnabled      bool   // whether the System page is enabled
+	SecEnabled      bool   // whether the Security page is enabled
 	ContentTemplate string // name of the body template the layout should render
 }
 
@@ -155,6 +164,7 @@ func (s *Server) base(title, active, contentTpl string) baseData {
 		Uptime:          humanDuration(time.Since(s.StartAt)),
 		ProjectsEnabled: s.projectsEnabled(),
 		SysEnabled:      s.Sys != nil,
+		SecEnabled:      s.SecMon != nil,
 		ContentTemplate: contentTpl,
 	}
 }

@@ -38,6 +38,11 @@ services:
       - ./data:/etc/orxies/data                 # SQLite state + secrets (persistent)
       - ./www:/etc/orxies/www:ro                # static-site roots
       - orxies-run:/run/orxies                  # shared agent socket
+      # Security page (read-only). If a path doesn't exist on the host,
+      # Docker creates a DIRECTORY there and the page will report the
+      # source as unreadable — create the file or drop the line instead.
+      - /var/log/auth.log:/var/log/auth.log:ro           # SSH brute-force + accepted logins
+      - /var/log/fail2ban.log:/var/log/fail2ban.log:ro   # ban / unban history
     environment:
       TZ: ${TZ:-UTC}
     security_opt:
@@ -46,6 +51,12 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE                        # bind <1024 as non-root
+    # The host auth logs are mode 640 root:adm, and this container runs
+    # unprivileged. adm (gid 4 on Debian/Ubuntu) is the least privilege
+    # that lets the Security page read them; without it the page renders
+    # an explicit "unreadable" notice rather than empty panels.
+    group_add:
+      - "4"
     deploy:
       resources:
         limits:

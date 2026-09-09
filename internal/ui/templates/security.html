@@ -1,0 +1,249 @@
+{{define "security"}}
+<section class="hero">
+  <h1 class="hero-title-row">{{icon "lock"}} Security</h1>
+  <p class="muted">SSH brute-force activity, every successful login, fail2ban enforcement, and the state of your own hardening controls. Refreshes every 20s.</p>
+</section>
+<div id="secbody" data-poll-url="/partials/security" data-poll-ms="20000">{{template "security-body" .Sec}}</div>
+{{end}}
+
+{{define "security-body"}}
+
+{{/* ── headline alert ─────────────────────────────────────────── */}}
+{{if .Hijacks}}
+<div class="alert error">{{icon "alert"}}<span><strong>{{len .Hijacks}} login(s) need review.</strong> A successful login from an address that also failed repeatedly is the signature of a brute-force that landed. Confirm each one below is you.</span></div>
+{{else if .Available}}
+<div class="alert ok">{{icon "check"}}<span>No suspicious logins in {{.Window}}. Every accepted login came from an address with no failed attempts.</span></div>
+{{end}}
+
+{{if .Reason}}
+<div class="alert info">{{icon "alert"}}<span>{{.Reason}}</span></div>
+{{end}}
+
+{{/* ── attack volume ──────────────────────────────────────────── */}}
+{{if .Available}}
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Failed passwords</span><span class="kpi-icon warn">{{icon "lock"}}</span></div>
+    <span class="kpi-value">{{.TotalFailures}}</span>
+    <span class="muted small">wrong password for a real account</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Invalid users</span><span class="kpi-icon warn">{{icon "inbox"}}</span></div>
+    <span class="kpi-value">{{.TotalInvalidUsers}}</span>
+    <span class="muted small">accounts that don't exist here</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Unique attackers</span><span class="kpi-icon warn">{{icon "globe"}}</span></div>
+    <span class="kpi-value">{{.UniqueAttackers}}</span>
+    <span class="muted small">distinct source addresses</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Accepted logins</span><span class="kpi-icon {{if .Hijacks}}warn{{else}}ok{{end}}">{{icon "check"}}</span></div>
+    <span class="kpi-value {{if .Hijacks}}danger{{end}}">{{.TotalSuccesses}}</span>
+    <span class="muted small">every one should be you</span>
+  </div>
+  <div class="kpi">
+    <div class="kpi-head"><span class="kpi-label">Banned now</span><span class="kpi-icon ok">{{icon "shield"}}</span></div>
+    <span class="kpi-value">{{.BansActive}}</span>
+    <span class="muted small">{{.BansTotal}} bans issued in window</span>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-header"><h2>{{icon "activity"}} Failed attempts, last 24h</h2><span class="muted small">{{.Window}} parsed · generated {{.GeneratedAt}}</span></div>
+  {{sparkLarge .Hourly}}
+</section>
+{{end}}
+
+{{/* ── logins needing review ──────────────────────────────────── */}}
+{{if .Hijacks}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "alert"}} Logins needing review</h2><span class="badge danger">{{.HighCount}} high</span></div>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>When</th><th>Severity</th><th>User</th><th>Source IP</th><th>Why it was flagged</th></tr></thead>
+      <tbody>
+        {{range .Hijacks}}
+        <tr class="{{if .High}}row-danger{{end}}">
+          <td class="mono">{{.Time}}</td>
+          <td><span class="badge {{if .High}}danger{{else}}warn{{end}}">{{.Severity}}</span></td>
+          <td class="mono">{{.User}}</td>
+          <td class="mono">{{.IP}}</td>
+          <td>{{.Reason}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{/* ── hardening posture ──────────────────────────────────────── */}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "shield"}} Hardening posture</h2><span class="muted small">are the defences actually switched on?</span></div>
+  {{if .Posture}}
+  <ul class="posture-list">
+    {{range .Posture}}
+    <li class="posture-row">
+      <span class="posture-dot s-{{.Status}}" aria-hidden="true"></span>
+      <span class="posture-label">{{.Label}}</span>
+      <span class="posture-detail muted">{{.Detail}}</span>
+      <span class="badge {{if eq .Status "ok"}}ok{{else if eq .Status "warn"}}warn{{else}}danger{{end}} push-right">{{.Status}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <div class="empty-state">{{icon "alert"}}<span>No posture information available.</span></div>
+  {{end}}
+</section>
+
+{{if .Available}}
+{{/* ── every accepted login ───────────────────────────────────── */}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "check"}} Every accepted login</h2><span class="muted small">the highest-signal panel on this page</span></div>
+  {{if .Successes}}
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>When</th><th>Method</th><th>User</th><th>Source IP</th><th>Port</th></tr></thead>
+      <tbody>
+        {{range .Successes}}
+        <tr class="{{if .Bad}}row-warn{{end}}">
+          <td class="mono">{{.Time}}</td>
+          <td><span class="badge {{if .Bad}}warn{{else}}ok{{end}}">{{.Kind}}</span></td>
+          <td class="mono">{{.User}}</td>
+          <td class="mono">{{.IP}}</td>
+          <td class="mono muted">{{.Port}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="table-hint muted small">A <span class="mono">accepted password</span> row is worth a second look once key-only auth is enforced — it should be impossible.</p>
+  {{else}}
+  <div class="empty-state">{{icon "inbox"}}<span>No accepted logins in the parsed window.</span></div>
+  {{end}}
+</section>
+
+{{/* ── top attackers ──────────────────────────────────────────── */}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "globe"}} Top attacking addresses</h2><span class="muted small">by total attempts</span></div>
+  {{if .TopAttackers}}
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>Source IP</th><th>Total</th><th>Failed</th><th>Invalid user</th><th>Succeeded</th><th>Bans</th><th>Last seen</th><th>State</th></tr></thead>
+      <tbody>
+        {{range .TopAttackers}}
+        <tr class="{{if .Danger}}row-danger{{end}}">
+          <td class="mono">{{.IP}}</td>
+          <td class="num">{{.Total}}</td>
+          <td class="num">{{.Failures}}</td>
+          <td class="num">{{.Invalid}}</td>
+          <td class="num {{if .Danger}}warn{{end}}">{{.Successes}}</td>
+          <td class="num muted">{{.Bans}}</td>
+          <td class="mono muted small">{{.LastSeen}}</td>
+          <td>{{if .Banned}}<span class="badge ok">{{icon "shield"}}banned</span>{{else}}<span class="badge">free</span>{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty-state">{{icon "check"}}<span>No failed attempts in the parsed window.</span></div>
+  {{end}}
+</section>
+
+{{/* ── usernames tried ────────────────────────────────────────── */}}
+{{if .TopUsernames}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "inbox"}} Usernames attackers tried</h2><span class="muted small">what the botnets are hunting for</span></div>
+  <ul class="userbars">
+    {{range .TopUsernames}}
+    <li class="userbar">
+      <span class="userbar-name mono">{{.User}}</span>
+      <progress class="meter" value="{{.Width}}" max="100"></progress>
+      <span class="userbar-count num">{{.Count}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{/* ── raw auth log ───────────────────────────────────────────── */}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "history"}} Auth log — failed attempts</h2><span class="muted small">newest first, straight from the host log</span></div>
+  {{if .RecentFailures}}
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>When</th><th>Event</th><th>User tried</th><th>Source IP</th><th>Port</th></tr></thead>
+      <tbody>
+        {{range .RecentFailures}}
+        <tr>
+          <td class="mono">{{.Time}}</td>
+          <td><span class="badge warn">{{.Kind}}</span></td>
+          <td class="mono">{{.User}}</td>
+          <td class="mono">{{.IP}}</td>
+          <td class="mono muted">{{.Port}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty-state">{{icon "check"}}<span>No failed attempts to show.</span></div>
+  {{end}}
+</section>
+
+{{/* ── fail2ban ───────────────────────────────────────────────── */}}
+{{if .RecentBans}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "shield"}} fail2ban enforcement</h2><span class="muted small">most recent bans</span></div>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>When</th><th>Action</th><th>Jail</th><th>Source IP</th></tr></thead>
+      <tbody>
+        {{range .RecentBans}}
+        <tr>
+          <td class="mono">{{.Time}}</td>
+          <td><span class="badge ok">{{.Kind}}</span></td>
+          <td class="mono muted">{{.Jail}}</td>
+          <td class="mono">{{.IP}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+{{end}}
+
+{{/* ── admin panel activity ───────────────────────────────────── */}}
+{{if .AuditEvents}}
+<section class="card">
+  <div class="card-header"><h2>{{icon "clock"}} Admin panel activity</h2><span class="muted small">orxies' own audit trail — logins and changes</span></div>
+  <div class="table-wrap">
+    <table class="sites">
+      <thead><tr><th>When</th><th>User</th><th>Source IP</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+      <tbody>
+        {{range .AuditEvents}}
+        <tr class="{{if .Bad}}row-warn{{end}}">
+          <td class="mono">{{.Time}}</td>
+          <td class="mono">{{.User}}</td>
+          <td class="mono">{{.IP}}</td>
+          <td>{{.Action}}</td>
+          <td class="mono muted">{{.Target}}</td>
+          <td><span class="badge {{if .Bad}}danger{{else}}ok{{end}}">{{.Result}}</span></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{if not .Available}}
+<section class="card">
+  <div class="empty-state">{{icon "alert"}}<span>Host log monitoring is unavailable, so attack data can't be shown. The posture and admin-activity panels above still apply.<br><br>Mount the logs read-only and give the container the <span class="mono">adm</span> group:<br><span class="mono">- /var/log/auth.log:/var/log/auth.log:ro</span><br><span class="mono">group_add: ["4"]</span></span></div>
+</section>
+{{end}}
+
+{{end}}

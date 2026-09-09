@@ -462,3 +462,46 @@ progress.meter.hot::-moz-progress-bar { background: var(--danger); }
 .empty-state .icon { width: 34px; height: 34px; color: var(--muted-2); }
 .theme-only-dark { display: none; }
 :root[data-theme="dark"] .theme-only-dark { display: inline-flex; }
+
+/* ── security page ────────────────────────────────────────────── */
+/* Badge severity variants. The base .badge is neutral; these carry
+   meaning, so they reuse the same tokens the KPI icons use. */
+.badge.ok     { background: var(--ok-soft);     color: var(--ok);     border-color: transparent; }
+.badge.warn   { background: var(--warn-soft);   color: var(--warn);   border-color: transparent; }
+.badge.danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+
+/* Row emphasis for tables. A left border reads as "look here" without
+   tinting the whole row into illegibility. */
+table.sites tbody tr.row-danger td { background: var(--danger-soft); }
+table.sites tbody tr.row-danger td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+table.sites tbody tr.row-warn td { background: var(--warn-soft); }
+table.sites tbody tr.row-warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
+/* Posture list: label, explanation, status. Grid keeps the status
+   badges aligned in a column however long the details run. */
+.posture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.posture-row {
+  display: grid; grid-template-columns: 10px minmax(140px, auto) 1fr auto;
+  align-items: center; gap: 12px;
+  padding: 12px 2px; border-bottom: 1px solid var(--border);
+}
+.posture-row:last-child { border-bottom: none; }
+.posture-dot { width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--muted-2); }
+.posture-dot.s-ok   { background: var(--ok);     box-shadow: 0 0 0 3px var(--ok-soft); }
+.posture-dot.s-warn { background: var(--warn);   box-shadow: 0 0 0 3px var(--warn-soft); }
+.posture-dot.s-bad  { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.posture-label { font-weight: 600; font-size: 13.5px; }
+.posture-detail { font-size: 13px; }
+@media (max-width: 720px) {
+  .posture-row { grid-template-columns: 10px 1fr auto; }
+  .posture-detail { grid-column: 2 / -1; }
+}
+
+/* Username-frequency bars. Width comes from the progress element's
+   value attribute, never an inline style — the admin CSP forbids
+   inline styles, so a style="width:..." bar would silently not render. */
+.userbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.userbar { display: grid; grid-template-columns: minmax(90px, 160px) 1fr minmax(56px, auto); align-items: center; gap: 12px; }
+.userbar-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.userbar-count { font-size: 13px; text-align: right; color: var(--muted); }
+.userbar progress.meter { margin-top: 0; }

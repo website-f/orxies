@@ -46,3 +46,21 @@ admins:
     # the secret here, and scan the printed otpauth URI into your
     # authenticator app. Leave empty / omit to disable 2FA for this admin.
     # totp_secret: ""
+
+# ── Security page ────────────────────────────────────────────────────
+# Feeds the Security dashboard: SSH brute-force volume, every accepted
+# login, fail2ban enforcement, and your own hardening posture.
+#
+# The paths are inside the container, so bind-mount them read-only and
+# give the container the adm group — see docker-compose.yml:
+#   volumes:
+#     - /var/log/auth.log:/var/log/auth.log:ro
+#     - /var/log/fail2ban.log:/var/log/fail2ban.log:ro
+#   group_add: ["4"]
+security_monitor:
+  enabled: true
+  auth_log: /var/log/auth.log          # RHEL family: /var/log/secure
+  fail2ban_log: /var/log/fail2ban.log
+  tail_bytes: 4194304                  # how much of each log tail to parse (4 MiB)
+  max_events: 200                      # rows per raw log panel
+  cache_seconds: 15                    # snapshot reuse between polls
