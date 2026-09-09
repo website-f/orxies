@@ -108,3 +108,77 @@ func MaxBody(n int64, h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 	})
 }
+
+// EdgeHeaders is the baseline security-header set applied to every
+// PUBLIC response the proxy serves — proxied and static alike.
+//
+// Why here rather than per-site config: these are the headers you want
+// on everything, and anything you have to remember to add per site is a
+// header some site will be missing. Per-site custom_headers still win,
+// because they're merged over this map (see MergeEdgeHeaders).
+//
+// Two deliberate omissions:
+//
+//   - Content-Security-Policy. A blind CSP breaks real applications —
+//     these upstreams are React/Inertia apps with inline bootstrap
+//     data, Vite assets, and a Leaflet map pulling tiles from a third
+//     party. A policy tight enough to be worth having has to be written
+//     per app and tested against it, so it's left as an opt-in via a
+//     site's custom_headers rather than shipped broken by default.
+//
+//   - Strict-Transport-Security. Handled separately in the router,
+//     because it must only ever be sent over TLS — see EdgeHSTS.
+func EdgeHeaders() map[string]string {
+	return map[string]string{
+		// Stop the browser second-guessing declared content types,
+		// which is how a user-uploaded image gets executed as script.
+		"X-Content-Type-Options": "nosniff",
+		// SAMEORIGIN rather than DENY: DENY would also block the site
+		// framing its own pages, which some upstreams legitimately do.
+		"X-Frame-Options": "SAMEORIGIN",
+		// Send the origin, not the full path, to third parties — paths
+		// leak order IDs, tokens and search terms via Referer.
+		"Referrer-Policy": "strict-origin-when-cross-origin",
+		// Deny powerful device APIs no upstream here asks for.
+		"Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+		// Legacy but harmless, and still honoured by some proxies.
+		"X-Permitted-Cross-Domain-Policies": "none",
+	}
+}
+
+// MergeEdgeHeaders returns the baseline set with a site's custom
+// headers layered on top, so a site can override or add to it.
+//
+// Returning ONE merged map matters: applying baseline and custom
+// separately would emit duplicate headers for keys present in both,
+// and browsers treat duplicated security headers inconsistently.
+func MergeEdgeHeaders(custom map[string]string) map[string]string {
+	out := EdgeHeaders()
+	for k, v := range custom {
+		out[k] = v
+	}
+	return out
+}
+
+// EdgeHSTS is the Strict-Transport-Security value for public HTTPS
+// responses, or "" when HSTS should not be sent.
+//
+// Deliberately conservative:
+//
+//   - 180 days, not the two years a preload submission wants. HSTS is
+//     effectively irreversible for as long as the max-age you last
+//     served, so a shorter window keeps a mistake recoverable.
+//   - NO includeSubDomains. It would force HTTPS on every subdomain of
+//     the host, including ones whose certificate isn't issued yet — on
+//     this deployment ws.staging.rizqmall.com has no DNS record and its
+//     ACME challenge fails, so including subdomains would make that
+//     name permanently unreachable in any browser that saw the header.
+//   - NO preload, which is a one-way door requiring both of the above.
+//
+// Widen these once every subdomain reliably serves TLS.
+func EdgeHSTS(isTLS bool) string {
+	if !isTLS {
+		return "" // pointless over plaintext, and harmful if a host is ever HTTP-only
+	}
+	return "max-age=15552000"
+}

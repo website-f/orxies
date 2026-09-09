@@ -15,6 +15,7 @@ import (
 
 	"orxies/internal/config"
 	"orxies/internal/metrics"
+	"orxies/internal/security"
 )
 
 // commonExploitPattern matches request paths that are never legitimate
@@ -35,10 +36,14 @@ var scannerUA = regexp.MustCompile(`(?i)(sqlmap|nikto|nmap|masscan|acunetix|ness
 // Rebuilt whenever the config reloads.
 type siteRuntime struct {
 	site    *config.Site
-	pool    *Pool                  // nil for static sites
+	pool    *Pool // nil for static sites
 	limiter *Limiter
 	rp      *httputil.ReverseProxy // nil for static sites
 	static  http.Handler           // non-nil for static (Root) sites
+	// headers is the baseline security set merged with the site's
+	// custom_headers (site wins). Precomputed per reload, and applied
+	// as ONE map so keys in both can't be emitted twice.
+	headers map[string]string
 }
 
 // Router is the HTTP handler that fronts everything. It implements
@@ -106,6 +111,10 @@ func (r *Router) Reload(sites []*config.Site) {
 			continue
 		}
 		rt := &siteRuntime{site: s}
+		// Baseline security headers + this site's overrides, computed
+		// once per reload. buildReverseProxy reads it below, so this
+		// must be set before that call.
+		rt.headers = security.MergeEdgeHeaders(s.CustomHeaders)
 		if s.Root != "" {
 			// Static site — serve files, no upstream pool.
 			rt.static = staticHandler(r.effectiveRoot(s.Root), s.SPA)
@@ -134,7 +143,9 @@ func (r *Router) Reload(sites []*config.Site) {
 // director rewrites the request to the next upstream from the pool;
 // the same proxy object can be reused across requests safely.
 func (r *Router) buildReverseProxy(rt *siteRuntime) *httputil.ReverseProxy {
-	custom := rt.site.CustomHeaders
+	// Baseline security headers merged with the site's custom_headers —
+	// one map, so a key present in both isn't emitted twice.
+	custom := rt.headers
 	rp := &httputil.ReverseProxy{
 		Transport: r.transport,
 		Director: func(req *http.Request) {
@@ -248,8 +259,20 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// HSTS is set here, not in the merged header map, because it depends
+	// on the request arriving over TLS — which ModifyResponse can't see.
+	if v := security.EdgeHSTS(req.TLS != nil); v != "" {
+		w.Header().Set("Strict-Transport-Security", v)
+	}
+
 	cw := &countingWriter{ResponseWriter: w, status: http.StatusOK}
 	if rt.static != nil {
+		// Static sites never pass through ModifyResponse, so the
+		// baseline set is applied directly here. Without this, static
+		// sites would be the only ones serving no security headers.
+		for k, v := range rt.headers {
+			cw.Header().Set(k, v)
+		}
 		rt.static.ServeHTTP(cw, req)
 	} else {
 		rt.rp.ServeHTTP(cw, req)
