@@ -140,7 +140,16 @@ func EdgeHeaders() map[string]string {
 		// leak order IDs, tokens and search terms via Referer.
 		"Referrer-Policy": "strict-origin-when-cross-origin",
 		// Deny powerful device APIs no upstream here asks for.
-		"Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+		//
+		// geolocation=(self), NOT geolocation=(). The empty allowlist denies
+		// the API to EVERY origin including the site's own page, so
+		// navigator.geolocation fails with PERMISSION_DENIED no matter what
+		// the visitor allows in the browser. RizqMall's "stores near you" map
+		// asks for a fix from its own page, and it was reporting "location is
+		// blocked, allow it in your browser" to people who had already allowed
+		// it. (self) keeps third-party frames denied while letting a site's own
+		// page ask.
+		"Permissions-Policy": "geolocation=(self), microphone=(), camera=(), payment=(), usb=()",
 		// Legacy but harmless, and still honoured by some proxies.
 		"X-Permitted-Cross-Domain-Policies": "none",
 	}
